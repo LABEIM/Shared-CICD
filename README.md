@@ -1,4 +1,4 @@
-# Shared CI/CD Framework (Approach C)
+# Shared CI/CD Framework
 
 A production-grade, modular CI/CD framework for web applications. Built with a **Hybrid Architecture** combining:
 1. **Composable Actions**: Independent building blocks for runtime setup, multi-cloud deployments, PR feedback, and performance audits.
