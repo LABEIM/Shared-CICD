@@ -170,9 +170,11 @@ jobs:
             fi
           fi
 
-          echo "package_manager=${RESOLVED_MGR}" >> "$GITHUB_OUTPUT"
-          echo "cache_type=${CACHE_TYPE}" >> "$GITHUB_OUTPUT"
-          echo "lockfile_path=${LOCKFILE_PATH}" >> "$GITHUB_OUTPUT"
+          {
+            echo "package_manager=${RESOLVED_MGR}"
+            echo "cache_type=${CACHE_TYPE}"
+            echo "lockfile_path=${LOCKFILE_PATH}"
+          } >> "$GITHUB_OUTPUT"
           echo "Resolved Package Manager: $RESOLVED_MGR"
 
       - name: Setup pnpm (if requested)
@@ -789,6 +791,7 @@ jobs:
           LIVE_LINKS: ${{ steps.lighthouse_live.outputs.links }}
           STATIC_LINKS: ${{ steps.lighthouse_static.outputs.links }}
         run: |
+          # shellcheck disable=SC2016
           node -e '
             const fs = require("fs");
             const targetUrl = process.env.TARGET_URL || "static dist/";

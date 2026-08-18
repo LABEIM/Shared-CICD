@@ -104,6 +104,7 @@ runs:
         LIVE_LINKS: ${{ steps.lighthouse_live.outputs.links }}
         STATIC_LINKS: ${{ steps.lighthouse_static.outputs.links }}
       run: |
+        # shellcheck disable=SC2016
         node -e '
           const fs = require("fs");
           const targetUrl = process.env.TARGET_URL || "Static build";

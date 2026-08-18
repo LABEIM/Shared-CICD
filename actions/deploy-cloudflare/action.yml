@@ -137,8 +137,10 @@ runs:
         fi
 
         echo "Live deployment URL: $DEPLOY_URL"
-        echo "deploy_url=$DEPLOY_URL" >> "$GITHUB_OUTPUT"
-        echo "is_production=$IS_PROD" >> "$GITHUB_OUTPUT"
+        {
+          echo "deploy_url=$DEPLOY_URL"
+          echo "is_production=$IS_PROD"
+        } >> "$GITHUB_OUTPUT"
 
     - name: Record Cloudflare deployment summary
       shell: bash

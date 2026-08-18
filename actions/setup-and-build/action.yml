@@ -105,9 +105,11 @@ runs:
           fi
         fi
 
-        echo "package_manager=${RESOLVED_MGR}" >> "$GITHUB_OUTPUT"
-        echo "cache_type=${CACHE_TYPE}" >> "$GITHUB_OUTPUT"
-        echo "lockfile_path=${LOCKFILE_PATH}" >> "$GITHUB_OUTPUT"
+        {
+          echo "package_manager=${RESOLVED_MGR}"
+          echo "cache_type=${CACHE_TYPE}"
+          echo "lockfile_path=${LOCKFILE_PATH}"
+        } >> "$GITHUB_OUTPUT"
         echo "Resolved Package Manager: $RESOLVED_MGR"
 
     - name: Setup pnpm (if requested)

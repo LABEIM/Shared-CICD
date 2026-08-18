@@ -125,6 +125,7 @@ runs:
         VERCEL_TOKEN: ${{ inputs.vercel_token }}
         COMMIT_SHA: ${{ github.sha }}
       run: |
+        # shellcheck disable=SC2016
         echo "Querying Vercel API for deployment URL matching commit ${COMMIT_SHA}..."
         API_RESPONSE=$(curl -sf \
           -H "Authorization: Bearer ${VERCEL_TOKEN}" \
