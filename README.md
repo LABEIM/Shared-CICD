@@ -48,7 +48,40 @@ flowchart TD
 
 ## Quickstart
 
-### 1. Cloudflare Pages (Default & Recommended)
+### 1. Pure Static / Zero-Dependency Site (Vanilla HTML/CSS/JS)
+**Zero configuration required!** No `package.json` or build scripts needed. The workflow auto-detects static repositories, bypasses dependency installation and build steps, stages static assets, and deploys immediately:
+
+```yaml
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: write
+  deployments: write
+
+jobs:
+  deploy:
+    uses: my-org/shared-ci-cd/.github/workflows/deploy-app.yml@v1
+    with:
+      enable_cloudflare: true
+      cloudflare_project_name: 'my-static-site'
+    secrets: inherit
+```
+
+---
+
+### 2. Standard Framework Site on Cloudflare Pages
 In your project repository, create `.github/workflows/ci-cd.yml`:
 
 ```yaml
@@ -75,7 +108,7 @@ jobs:
     uses: LABEIM/shared-ci-cd/.github/workflows/deploy-app.yml@v1
     with:
       node_version: '22'
-      package_manager: 'npm' # npm | pnpm | bun | yarn
+      package_manager: 'npm' # npm | pnpm | bun | yarn | none
       build_command: 'npm run build'
       dist_dir: 'dist'
       enable_cloudflare: true
@@ -90,7 +123,7 @@ jobs:
 
 ---
 
-### 2. Multi-Cloud Parallel Deployment (Cloudflare + Vercel Backup)
+### 3. Multi-Cloud Parallel Deployment (Cloudflare + Vercel Backup)
 ```yaml
 jobs:
   deploy:
@@ -117,7 +150,7 @@ jobs:
 
 ---
 
-### 3. Using Standalone Composite Actions Directly
+### 4. Using Standalone Composite Actions Directly
 If your project has custom Docker builds, staging environments, or multi-step release gates, import composite actions directly:
 
 ```yaml
@@ -161,11 +194,11 @@ jobs:
 | Input | Type | Default | Description |
 | :--- | :---: | :---: | :--- |
 | `node_version` | String | `'22'` | Node.js version |
-| `package_manager` | String | `'npm'` | Package manager (`npm`, `pnpm`, `bun`, `yarn`) |
-| `install_command` | String | `''` | Custom install command override |
+| `package_manager` | String | `'npm'` | Package manager (`npm`, `pnpm`, `bun`, `yarn`, `none`) |
+| `install_command` | String | `''` | Custom install command override (or `'none'` to skip) |
 | `check_command` | String | `''` | Optional diagnostic check (e.g. `npx astro check`, `npm run lint`) |
-| `build_command` | String | `'npm run build'` | Static build command |
-| `dist_dir` | String | `'dist'` | Static export directory to deploy |
+| `build_command` | String | `'npm run build'` | Static build command (or `'none'` for static/pre-built sites) |
+| `dist_dir` | String | `'dist'` | Static export directory to deploy (`'dist'`, `'public'`, `'.'`, etc.) |
 | `enable_cloudflare` | Boolean | `true` | Enable Cloudflare Pages deployment |
 | `cloudflare_project_name` | String | `''` | Cloudflare Pages project name |
 | `production_branch` | String | `'main'` | Production branch name |
@@ -213,6 +246,15 @@ To allow other repositories in your GitHub Organization to call this workflow:
 ---
 
 ## Framework Recipes
+
+### Pure Static / Vanilla HTML, CSS & JS (Zero Configuration)
+* Automatically skips package management & builds when `package.json` is missing.
+* Stages static root files or `public/` folder directly.
+```yaml
+with:
+  enable_cloudflare: true
+  cloudflare_project_name: 'my-static-site'
+```
 
 ### Astro
 ```yaml

@@ -64,7 +64,11 @@ runs:
       run: |
         DIST="${{ inputs.dist_dir }}"
         mkdir -p .vercel/output/static
-        cp -r "${DIST}"/. .vercel/output/static/
+        if [ "$DIST" = "." ] || [ "$DIST" = "./" ]; then
+          find . -maxdepth 1 ! -name '.' ! -name '.git' ! -name '.github' ! -name '.vercel' ! -name 'node_modules' ! -name '.lighthouseci' -exec cp -r {} .vercel/output/static/ \;
+        else
+          cp -r "${DIST}"/. .vercel/output/static/
+        fi
         printf '{"version":3}\n' > .vercel/output/config.json
         echo "Vercel Output API structure prepared:"
         ls -la .vercel/output/

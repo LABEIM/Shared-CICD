@@ -10,12 +10,12 @@ on:
         type: string
         default: '22'
       package_manager:
-        description: 'Package manager (npm, pnpm, bun, yarn)'
+        description: 'Package manager (npm, pnpm, bun, yarn, none)'
         required: false
         type: string
         default: 'npm'
       install_command:
-        description: 'Custom dependency installation command'
+        description: 'Custom dependency installation command (or "none" to skip)'
         required: false
         type: string
         default: ''
@@ -25,7 +25,7 @@ on:
         type: string
         default: ''
       build_command:
-        description: 'Build command to generate static files'
+        description: 'Build command to generate static files (or "none" to skip)'
         required: false
         type: string
         default: 'npm run build'
@@ -127,29 +127,53 @@ jobs:
           bun-version: latest
 
       - name: Setup Node.js
+        if: inputs.package_manager != 'none' && inputs.package_manager != 'static'
         uses: actions/setup-node@v4
         with:
           node-version: ${{ inputs.node_version }}
-          cache: ${{ (inputs.package_manager == 'npm' || inputs.package_manager == 'pnpm' || inputs.package_manager == 'yarn') && inputs.package_manager || '' }}
+          cache: ${{ ((inputs.package_manager == 'npm' && hashFiles('package-lock.json', 'npm-shrinkwrap.json') != '') || (inputs.package_manager == 'pnpm' && hashFiles('pnpm-lock.yaml') != '') || (inputs.package_manager == 'yarn' && hashFiles('yarn.lock') != '')) && inputs.package_manager || '' }}
 
       - name: Install dependencies
         run: |
-          if [ -n "${{ inputs.install_command }}" ]; then
+          INSTALL_CMD="${{ inputs.install_command }}"
+          PKG_MGR="${{ inputs.package_manager }}"
+
+          if [ "$INSTALL_CMD" = "none" ] || [ "$INSTALL_CMD" = "false" ] || [ "$INSTALL_CMD" = "skip" ] || [ "$PKG_MGR" = "none" ] || [ "$PKG_MGR" = "static" ]; then
+            echo "Dependency installation skipped explicitly."
+          elif [ -n "$INSTALL_CMD" ]; then
             echo "Running custom install command..."
-            ${{ inputs.install_command }}
+            eval "$INSTALL_CMD"
+          elif [ ! -f "package.json" ]; then
+            echo "No package.json detected. Zero-dependency static project identified — skipping dependency installation."
           else
-            case "${{ inputs.package_manager }}" in
+            case "$PKG_MGR" in
               pnpm)
-                pnpm install --frozen-lockfile
+                echo "Installing with pnpm..."
+                if [ -f "pnpm-lock.yaml" ]; then
+                  pnpm install --frozen-lockfile
+                else
+                  pnpm install
+                fi
                 ;;
               bun)
-                bun install --frozen-lockfile
+                echo "Installing with bun..."
+                if [ -f "bun.lockb" ] || [ -f "bun.lock" ]; then
+                  bun install --frozen-lockfile
+                else
+                  bun install
+                fi
                 ;;
               yarn)
-                yarn install --frozen-lockfile
+                echo "Installing with yarn..."
+                if [ -f "yarn.lock" ]; then
+                  yarn install --frozen-lockfile
+                else
+                  yarn install
+                fi
                 ;;
               *)
-                if [ -f "package-lock.json" ]; then
+                echo "Installing with npm..."
+                if [ -f "package-lock.json" ] || [ -f "npm-shrinkwrap.json" ]; then
                   npm ci
                 else
                   npm install
@@ -168,18 +192,55 @@ jobs:
         id: build
         run: |
           BUILD_START=$(date +%s)
-          echo "Running build command: ${{ inputs.build_command }}"
-          ${{ inputs.build_command }}
+          BUILD_CMD="${{ inputs.build_command }}"
+
+          if [ "$BUILD_CMD" = "none" ] || [ "$BUILD_CMD" = "false" ] || [ "$BUILD_CMD" = "skip" ] || [ -z "$BUILD_CMD" ]; then
+            echo "Static project detected: build step skipped."
+          elif [ "$BUILD_CMD" = "npm run build" ]; then
+            if [ ! -f "package.json" ]; then
+              echo "No package.json detected with default build command. Skipping build step for static project."
+            elif ! node -e "const pkg=require('./package.json'); process.exit(pkg.scripts && pkg.scripts.build ? 0 : 1)" 2>/dev/null; then
+              echo "No 'build' script found in package.json. Skipping build step for static project."
+            else
+              echo "Running build command: $BUILD_CMD"
+              npm run build
+            fi
+          else
+            echo "Running custom build command: $BUILD_CMD"
+            eval "$BUILD_CMD"
+          fi
+
           BUILD_END=$(date +%s)
           BUILD_DURATION=$((BUILD_END - BUILD_START))
           echo "duration=${BUILD_DURATION}s" >> "$GITHUB_OUTPUT"
+
+      - name: Stage static output directory (if needed)
+        run: |
+          TARGET_DIR="${{ inputs.dist_dir }}"
+          if [ ! -d "$TARGET_DIR" ]; then
+            if [ "$TARGET_DIR" = "dist" ]; then
+              if [ -d "public" ] && [ "$(ls -A public 2>/dev/null)" ]; then
+                echo "Directory 'dist' not found. Auto-staging static files from 'public/' into 'dist/'..."
+                mkdir -p dist
+                cp -r public/* dist/ 2>/dev/null || cp -r public/. dist/
+              elif [ -f "index.html" ]; then
+                echo "Directory 'dist' not found. Auto-staging static root files into 'dist/'..."
+                mkdir -p dist
+                find . -maxdepth 1 ! -name '.' ! -name 'dist' ! -name '.git' ! -name '.github' ! -name '.vercel' ! -name 'node_modules' ! -name '.lighthouseci' -exec cp -r {} dist/ \;
+              fi
+            fi
+          fi
 
       - name: Generate build artifact hash
         id: hash
         run: |
           TARGET_DIR="${{ inputs.dist_dir }}"
           if [ -d "$TARGET_DIR" ]; then
-            HASH=$(find "$TARGET_DIR" -type f -exec sha256sum {} \; | sort | sha256sum | cut -d' ' -f1)
+            if [ "$TARGET_DIR" = "." ] || [ "$TARGET_DIR" = "./" ]; then
+              HASH=$(find . -type f ! -path '*/.git/*' ! -path '*/.github/*' ! -path '*/node_modules/*' ! -path '*/.vercel/*' ! -path '*/.lighthouseci/*' -exec sha256sum {} \; | sort | sha256sum | cut -d' ' -f1)
+            else
+              HASH=$(find "$TARGET_DIR" -type f -exec sha256sum {} \; | sort | sha256sum | cut -d' ' -f1)
+            fi
             echo "sha256=${HASH}" >> "$GITHUB_OUTPUT"
           else
             echo "::warning::Output directory '$TARGET_DIR' not found."
@@ -397,7 +458,11 @@ jobs:
         run: |
           DIST="${{ inputs.dist_dir }}"
           mkdir -p .vercel/output/static
-          cp -r "${DIST}"/. .vercel/output/static/
+          if [ "$DIST" = "." ] || [ "$DIST" = "./" ]; then
+            find . -maxdepth 1 ! -name '.' ! -name '.git' ! -name '.github' ! -name '.vercel' ! -name 'node_modules' ! -name '.lighthouseci' -exec cp -r {} .vercel/output/static/ \;
+          else
+            cp -r "${DIST}"/. .vercel/output/static/
+          fi
           printf '{"version":3}\n' > .vercel/output/config.json
           echo "Vercel Output API structure ready:"
           ls -la .vercel/output/

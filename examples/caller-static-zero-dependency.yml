@@ -1,0 +1,51 @@
+# Example: Pure Static / Zero-Dependency Project (Vanilla HTML, CSS, JavaScript)
+# Automatically supported out-of-the-box with NO package.json and NO build step required!
+# Place this in your project repository at: .github/workflows/ci-cd.yml
+
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: write
+  deployments: write
+
+jobs:
+  deploy:
+    # Replace 'my-org/shared-ci-cd' with your actual repository name
+    uses: my-org/shared-ci-cd/.github/workflows/deploy-app.yml@v1
+    with:
+      # Target Platforms
+      enable_cloudflare: true
+      cloudflare_project_name: 'my-static-landing-page'
+      enable_vercel: false
+
+      # Zero-config static auto-detection handles the rest automatically:
+      # - Automatically detects absence of package.json and skips npm install
+      # - Automatically detects static site and skips npm run build
+      # - Automatically detects static source files (root index.html or public/) into dist
+      
+      # Optional customizations (uncomment if using a non-standard folder):
+      # dist_dir: 'public'          # If your static files are kept in a subfolder
+      # package_manager: 'none'     # Explicitly disable package manager runtime
+      # build_command: 'none'       # Explicitly declare no build step
+
+      # Audits & Feedback
+      enable_pr_comment: true
+      enable_lighthouse: true
+      lighthouse_routes: |
+        /
+        /about.html
+        /contact.html
+
+    secrets: inherit
