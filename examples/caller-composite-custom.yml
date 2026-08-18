@@ -1,0 +1,57 @@
+# Example: Custom Project using individual Composite Actions directly
+# Useful when you need custom Docker builds, specialized tests, or non-standard deployment steps.
+
+name: Custom Pipeline
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+permissions:
+  contents: read
+  pull-requests: write
+  deployments: write
+
+jobs:
+  custom-build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout project
+        uses: actions/checkout@v4
+
+      # 1. Custom build with our shared setup action
+      - name: Build static site
+        uses: my-org/shared-ci-cd/actions/setup-and-build@v1
+        with:
+          node_version: '22'
+          package_manager: 'pnpm'
+          build_command: 'pnpm build:static'
+          dist_dir: 'dist'
+
+      # 2. Deploy directly with our shared Cloudflare action
+      - name: Deploy to Cloudflare Pages
+        id: deploy_cf
+        uses: my-org/shared-ci-cd/actions/deploy-cloudflare@v1
+        with:
+          project_name: 'custom-web-portal'
+          dist_dir: 'dist'
+          api_token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          account_id: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      # 3. Post preview comment on PRs
+      - name: Post PR preview comment
+        if: github.event_name == 'pull_request'
+        uses: my-org/shared-ci-cd/actions/pr-preview-comment@v1
+        with:
+          cloudflare_url: ${{ steps.deploy_cf.outputs.deploy_url }}
+
+      # 4. Run Lighthouse audit on the deployed URL
+      - name: Audit Performance
+        uses: my-org/shared-ci-cd/actions/lighthouse-audit@v1
+        with:
+          target_url: ${{ steps.deploy_cf.outputs.deploy_url }}
+          routes: |
+            /
+            /docs

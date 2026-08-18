@@ -1,0 +1,159 @@
+name: 'Setup & Build Static Web App'
+description: 'Sets up runtime, installs dependencies, runs checks, builds static site, and uploads dist artifact'
+
+inputs:
+  node_version:
+    description: 'Node.js version'
+    required: false
+    default: '22'
+  package_manager:
+    description: 'Package manager to use (npm, pnpm, bun, yarn)'
+    required: false
+    default: 'npm'
+  install_command:
+    description: 'Custom install command (leave blank to auto-detect from package_manager)'
+    required: false
+    default: ''
+  check_command:
+    description: 'Optional lint/typecheck command (e.g. "npx astro check" or "npm run lint")'
+    required: false
+    default: ''
+  build_command:
+    description: 'Build command to generate static export'
+    required: false
+    default: 'npm run build'
+  dist_dir:
+    description: 'Output directory containing built static files'
+    required: false
+    default: 'dist'
+  upload_artifact:
+    description: 'Whether to upload the dist directory as a workflow artifact'
+    required: false
+    default: 'true'
+  artifact_name:
+    description: 'Name of the uploaded dist artifact'
+    required: false
+    default: 'dist-static-build'
+  artifact_retention_days:
+    description: 'Number of days to retain the build artifact'
+    required: false
+    default: '3'
+
+outputs:
+  artifact_hash:
+    description: 'Deterministic SHA256 hash of the build output'
+    value: ${{ steps.hash.outputs.sha256 }}
+  build_duration:
+    description: 'Build duration in seconds'
+    value: ${{ steps.build.outputs.duration }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Setup pnpm (if requested)
+      if: inputs.package_manager == 'pnpm'
+      uses: pnpm/action-setup@v3
+      with:
+        version: latest
+
+    - name: Setup Bun (if requested)
+      if: inputs.package_manager == 'bun'
+      uses: oven-sh/setup-bun@v2
+      with:
+        bun-version: latest
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ inputs.node_version }}
+        cache: ${{ (inputs.package_manager == 'npm' || inputs.package_manager == 'pnpm' || inputs.package_manager == 'yarn') && inputs.package_manager || '' }}
+
+    - name: Install dependencies
+      shell: bash
+      run: |
+        if [ -n "${{ inputs.install_command }}" ]; then
+          echo "Running custom install command: ${{ inputs.install_command }}"
+          ${{ inputs.install_command }}
+        else
+          case "${{ inputs.package_manager }}" in
+            pnpm)
+              echo "Installing with pnpm..."
+              pnpm install --frozen-lockfile
+              ;;
+            bun)
+              echo "Installing with bun..."
+              bun install --frozen-lockfile
+              ;;
+            yarn)
+              echo "Installing with yarn..."
+              yarn install --frozen-lockfile
+              ;;
+            *)
+              echo "Installing with npm..."
+              if [ -f "package-lock.json" ]; then
+                npm ci
+              else
+                npm install
+              fi
+              ;;
+          esac
+        fi
+
+    - name: Run Diagnostics / Checks
+      if: inputs.check_command != ''
+      shell: bash
+      run: |
+        echo "Running diagnostics check: ${{ inputs.check_command }}"
+        ${{ inputs.check_command }}
+
+    - name: Build static site export
+      id: build
+      shell: bash
+      run: |
+        BUILD_START=$(date +%s)
+        echo "Running build command: ${{ inputs.build_command }}"
+        ${{ inputs.build_command }}
+        BUILD_END=$(date +%s)
+        BUILD_DURATION=$((BUILD_END - BUILD_START))
+        echo "duration=${BUILD_DURATION}s" >> "$GITHUB_OUTPUT"
+
+    - name: Generate build artifact hash
+      id: hash
+      shell: bash
+      run: |
+        TARGET_DIR="${{ inputs.dist_dir }}"
+        if [ -d "$TARGET_DIR" ]; then
+          HASH=$(find "$TARGET_DIR" -type f -exec sha256sum {} \; | sort | sha256sum | cut -d' ' -f1)
+          echo "sha256=${HASH}" >> "$GITHUB_OUTPUT"
+        else
+          echo "::warning::Dist directory '$TARGET_DIR' not found after build."
+          echo "sha256=none" >> "$GITHUB_OUTPUT"
+        fi
+
+    - name: Upload build artifact
+      if: inputs.upload_artifact == 'true'
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ inputs.artifact_name }}
+        path: ${{ inputs.dist_dir }}/
+        retention-days: ${{ inputs.artifact_retention_days }}
+
+    - name: Build summary
+      shell: bash
+      run: |
+        TARGET_DIR="${{ inputs.dist_dir }}"
+        DIR_SIZE="N/A"
+        if [ -d "$TARGET_DIR" ]; then
+          DIR_SIZE=$(du -sh "$TARGET_DIR" | cut -f1)
+        fi
+        HASH="${{ steps.hash.outputs.sha256 }}"
+
+        echo "### Build Summary" >> "$GITHUB_STEP_SUMMARY"
+        echo "" >> "$GITHUB_STEP_SUMMARY"
+        echo "| Metric | Value |" >> "$GITHUB_STEP_SUMMARY"
+        echo "| :--- | :--- |" >> "$GITHUB_STEP_SUMMARY"
+        echo "| Build Duration | ${{ steps.build.outputs.duration }} |" >> "$GITHUB_STEP_SUMMARY"
+        echo "| Artifact SHA256 | \`${HASH:0:16}...\` |" >> "$GITHUB_STEP_SUMMARY"
+        echo "| Artifact Size | ${DIR_SIZE} |" >> "$GITHUB_STEP_SUMMARY"
+        echo "| Branch | \`${{ github.ref_name }}\` |" >> "$GITHUB_STEP_SUMMARY"
+        echo "| Commit | \`${{ github.sha }}\` |" >> "$GITHUB_STEP_SUMMARY"

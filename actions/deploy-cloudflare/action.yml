@@ -1,0 +1,158 @@
+name: 'Deploy to Cloudflare Pages'
+description: 'Deploys static assets to Cloudflare Pages via Wrangler with exponential retry and secret-safe URL resolution'
+
+inputs:
+  project_name:
+    description: 'Cloudflare Pages project name'
+    required: true
+  dist_dir:
+    description: 'Directory containing built assets to deploy'
+    required: false
+    default: 'dist'
+  production_branch:
+    description: 'Primary production branch name'
+    required: false
+    default: 'main'
+  api_token:
+    description: 'Cloudflare API Token with Pages edit permissions'
+    required: true
+  account_id:
+    description: 'Cloudflare Account ID'
+    required: true
+  max_retries:
+    description: 'Maximum number of deployment retry attempts'
+    required: false
+    default: '3'
+  retry_delay:
+    description: 'Initial retry backoff delay in seconds'
+    required: false
+    default: '10'
+
+outputs:
+  deploy_url:
+    description: 'The resolved live or branch preview deployment URL'
+    value: ${{ steps.deploy.outputs.deploy_url }}
+  is_production:
+    description: 'Whether this was a production or preview deployment'
+    value: ${{ steps.deploy.outputs.is_production }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Deploy to Cloudflare Pages via Wrangler
+      id: deploy
+      shell: bash
+      env:
+        CLOUDFLARE_API_TOKEN: ${{ inputs.api_token }}
+        CLOUDFLARE_ACCOUNT_ID: ${{ inputs.account_id }}
+        PROJECT_NAME: ${{ inputs.project_name }}
+        DIST_DIR: ${{ inputs.dist_dir }}
+        PROD_BRANCH: ${{ inputs.production_branch }}
+        MAX_RETRIES: ${{ inputs.max_retries }}
+        INITIAL_RETRY_DELAY: ${{ inputs.retry_delay }}
+      run: |
+        if [ -z "$CLOUDFLARE_API_TOKEN" ] || [ -z "$CLOUDFLARE_ACCOUNT_ID" ]; then
+          echo "::error::CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID must be provided."
+          exit 1
+        fi
+
+        RAW_HEAD_REF="${{ github.head_ref }}"
+        RAW_REF_NAME="${{ github.ref_name }}"
+        BRANCH_NAME="${RAW_HEAD_REF:-$RAW_REF_NAME}"
+
+        echo "Target Cloudflare Project: $PROJECT_NAME"
+        echo "Target Branch: $BRANCH_NAME"
+        echo "Source Assets Directory: $DIST_DIR"
+
+        # Auto-create Pages project shell if it does not exist yet
+        npx wrangler pages project create "$PROJECT_NAME" --production-branch="$PROD_BRANCH" > /dev/null 2>&1 || true
+
+        # Deploy with retry logic (exponential backoff)
+        RETRY_DELAY=$INITIAL_RETRY_DELAY
+        for ATTEMPT in $(seq 1 $MAX_RETRIES); do
+          echo "::group::Cloudflare Pages deployment attempt $ATTEMPT/$MAX_RETRIES"
+          if npx wrangler pages deploy "$DIST_DIR" \
+            --project-name="$PROJECT_NAME" \
+            --branch="$BRANCH_NAME" \
+            --commit-dirty=true 2>&1 | tee deploy.log; then
+            echo "::endgroup::"
+            echo "Deployment succeeded on attempt $ATTEMPT"
+            break
+          fi
+          echo "::endgroup::"
+          if [ "$ATTEMPT" -lt "$MAX_RETRIES" ]; then
+            echo "Attempt $ATTEMPT failed, retrying in ${RETRY_DELAY}s..."
+            sleep $RETRY_DELAY
+            RETRY_DELAY=$((RETRY_DELAY * 2))
+          else
+            echo "::error::All $MAX_RETRIES deployment attempts to Cloudflare Pages failed."
+            exit 1
+          fi
+        done
+
+        CLEAN_BRANCH=$(echo "$BRANCH_NAME" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g; s/^-//; s/-$//')
+        IS_PROD="false"
+        if [ "$BRANCH_NAME" = "$PROD_BRANCH" ] || [ "$CLEAN_BRANCH" = "main" ] || [ "$CLEAN_BRANCH" = "master" ]; then
+          IS_PROD="true"
+        fi
+
+        # Parse wrangler deploy output for canonical Production URL or Branch Preview URL
+        PROD_URL=$(grep -i "Production URL:" deploy.log | grep -oP 'https://[a-zA-Z0-9.-]+\.pages\.dev' | head -1 | tr -cd 'a-zA-Z0-9.:/_-' || true)
+        BRANCH_PREVIEW_URL=$(grep -i "Branch Preview URL:" deploy.log | grep -oP 'https://[a-zA-Z0-9.-]+\.pages\.dev' | head -1 | tr -cd 'a-zA-Z0-9.:/_-' || true)
+
+        DEPLOY_URL=""
+        if [ "$IS_PROD" = "true" ]; then
+          if [ -n "$PROD_URL" ]; then
+            DEPLOY_URL="$PROD_URL"
+          else
+            DEPLOY_URL="https://${PROJECT_NAME}.pages.dev"
+          fi
+        else
+          if [ -n "$BRANCH_PREVIEW_URL" ]; then
+            DEPLOY_URL="$BRANCH_PREVIEW_URL"
+          fi
+        fi
+
+        # Fallback 1: look for general pages.dev/workers.dev URL
+        if [ -z "$DEPLOY_URL" ]; then
+          DEPLOY_URL=$(sed 's/\x1B\[[0-9;]*[a-zA-Z]//g' deploy.log \
+            | grep -oP 'https://[a-zA-Z0-9.-]+\.(pages\.dev|workers\.dev)' \
+            | grep -iv 'dash\.cloudflare\|api\.cloudflare' \
+            | head -1 \
+            | tr -cd 'a-zA-Z0-9.:/_-' || true)
+        fi
+
+        # Fallback 2: construct standard Cloudflare Pages URL pattern
+        if [ -z "$DEPLOY_URL" ] || ! echo "$DEPLOY_URL" | grep -q '^https://'; then
+          if [ "$IS_PROD" = "true" ]; then
+            DEPLOY_URL="https://${PROJECT_NAME}.pages.dev"
+          else
+            DEPLOY_URL="https://${CLEAN_BRANCH}.${PROJECT_NAME}.pages.dev"
+          fi
+        fi
+
+        echo "Live deployment URL: $DEPLOY_URL"
+        echo "deploy_url=$DEPLOY_URL" >> "$GITHUB_OUTPUT"
+        echo "is_production=$IS_PROD" >> "$GITHUB_OUTPUT"
+
+        # Save to file as artifact fallback (immune to GitHub secret masking)
+        echo "$DEPLOY_URL" > cf_deploy_url.txt
+
+    - name: Upload CF deploy URL artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: cf-deploy-url
+        path: cf_deploy_url.txt
+        retention-days: 1
+
+    - name: Record Cloudflare deployment summary
+      shell: bash
+      run: |
+        echo "### Cloudflare Pages Deployment" >> "$GITHUB_STEP_SUMMARY"
+        echo "" >> "$GITHUB_STEP_SUMMARY"
+        echo "| Detail | Value |" >> "$GITHUB_STEP_SUMMARY"
+        echo "| :--- | :--- |" >> "$GITHUB_STEP_SUMMARY"
+        echo "| URL | ${{ steps.deploy.outputs.deploy_url }} |" >> "$GITHUB_STEP_SUMMARY"
+        echo "| Branch | \`${{ github.head_ref || github.ref_name }}\` |" >> "$GITHUB_STEP_SUMMARY"
+        echo "| Mode | ${{ steps.deploy.outputs.is_production == 'true' && 'Production' || 'Branch Preview' }} |" >> "$GITHUB_STEP_SUMMARY"
+        echo "| Status | Deployed |" >> "$GITHUB_STEP_SUMMARY"

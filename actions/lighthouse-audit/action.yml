@@ -1,0 +1,239 @@
+name: 'Lighthouse CI Audit & Reporting'
+description: 'Runs Lighthouse CI performance and accessibility audits on live or static deployments and posts markdown reports'
+
+inputs:
+  target_url:
+    description: 'Base URL to audit (leave empty for static dist fallback)'
+    required: false
+    default: ''
+  routes:
+    description: 'Newline-separated or space-separated list of relative routes to audit (e.g. "/\n/about\n/contact")'
+    required: false
+    default: '/'
+  config_path:
+    description: 'Path to custom Lighthouse CI config file'
+    required: false
+    default: ''
+  dist_dir:
+    description: 'Static directory for static audits fallback'
+    required: false
+    default: 'dist'
+  append_to_pr:
+    description: 'Whether to append audit results to the PR preview comment'
+    required: false
+    default: 'true'
+  github_token:
+    description: 'GitHub token with pull-requests: write permissions'
+    required: false
+    default: ${{ github.token }}
+
+outputs:
+  summary_markdown:
+    description: 'Markdown summary of the audit scores'
+    value: ${{ steps.parse_lh.outputs.summary_markdown }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Download CF deploy URL artifact (fallback)
+      uses: actions/download-artifact@v4
+      with:
+        name: cf-deploy-url
+        path: .
+      continue-on-error: true
+
+    - name: Download Vercel deploy URL artifact (fallback)
+      uses: actions/download-artifact@v4
+      with:
+        name: vercel-deploy-url
+        path: .
+      continue-on-error: true
+
+    - name: Resolve target audit URL
+      id: resolve_target
+      shell: bash
+      env:
+        PASSED_URL: ${{ inputs.target_url }}
+      run: |
+        TARGET=""
+        if [ -n "$PASSED_URL" ]; then
+          TARGET=$(echo "$PASSED_URL" | tr -cd 'a-zA-Z0-9.:/_-')
+        fi
+        if [ -z "$TARGET" ] && [ -f cf_deploy_url.txt ]; then
+          TARGET=$(cat cf_deploy_url.txt | tr -cd 'a-zA-Z0-9.:/_-')
+        fi
+        if [ -z "$TARGET" ] && [ -f vercel_deploy_url.txt ]; then
+          TARGET=$(cat vercel_deploy_url.txt | tr -cd 'a-zA-Z0-9.:/_-')
+        fi
+
+        echo "Resolved Lighthouse Target: '${TARGET:-(Static dist fallback)}'"
+        echo "target_url=$TARGET" >> "$GITHUB_OUTPUT"
+
+    - name: Build target URLs list
+      if: steps.resolve_target.outputs.target_url != ''
+      id: build_urls
+      shell: bash
+      env:
+        BASE_URL: ${{ steps.resolve_target.outputs.target_url }}
+        ROUTES: ${{ inputs.routes }}
+      run: |
+        BASE=$(echo "$BASE_URL" | sed 's|/$||')
+        
+        {
+          echo "urls<<EOF_URLS"
+          for ROUTE in $ROUTES; do
+            CLEAN_ROUTE=$(echo "$ROUTE" | sed 's|^/||')
+            if [ -z "$CLEAN_ROUTE" ]; then
+              echo "${BASE}/"
+            else
+              echo "${BASE}/${CLEAN_ROUTE}"
+            fi
+          done
+          echo "EOF_URLS"
+        } >> "$GITHUB_OUTPUT"
+
+    - name: Run Lighthouse audit (Live URL)
+      if: steps.resolve_target.outputs.target_url != ''
+      id: lighthouse_live
+      uses: treosh/lighthouse-ci-action@v12
+      with:
+        configPath: ${{ inputs.config_path }}
+        urls: ${{ steps.build_urls.outputs.urls }}
+        uploadArtifacts: true
+
+    - name: Run Lighthouse audit (Static Fallback)
+      if: steps.resolve_target.outputs.target_url == ''
+      id: lighthouse_static
+      uses: treosh/lighthouse-ci-action@v12
+      with:
+        configPath: ${{ inputs.config_path }}
+        uploadArtifacts: true
+
+    - name: Parse and format Lighthouse results
+      id: parse_lh
+      shell: bash
+      env:
+        TARGET_URL: ${{ steps.resolve_target.outputs.target_url }}
+        LIVE_MANIFEST: ${{ steps.lighthouse_live.outputs.manifest }}
+        STATIC_MANIFEST: ${{ steps.lighthouse_static.outputs.manifest }}
+        LIVE_LINKS: ${{ steps.lighthouse_live.outputs.links }}
+        STATIC_LINKS: ${{ steps.lighthouse_static.outputs.links }}
+      run: |
+        node -e '
+          const fs = require("fs");
+          const targetUrl = process.env.TARGET_URL || "Static build";
+          const liveManifestStr = process.env.LIVE_MANIFEST || "";
+          const staticManifestStr = process.env.STATIC_MANIFEST || "";
+          const liveLinksStr = process.env.LIVE_LINKS || "";
+          const staticLinksStr = process.env.STATIC_LINKS || "";
+          const summaryFile = process.env.GITHUB_STEP_SUMMARY;
+          const outputFile = process.env.GITHUB_OUTPUT;
+
+          let manifest = null;
+          let links = {};
+
+          try {
+            const rawManifest = liveManifestStr || staticManifestStr;
+            if (rawManifest) manifest = JSON.parse(rawManifest);
+          } catch (e) {}
+
+          if (!manifest && fs.existsSync(".lighthouseci/manifest.json")) {
+            try {
+              manifest = JSON.parse(fs.readFileSync(".lighthouseci/manifest.json", "utf8"));
+            } catch (e) {}
+          }
+
+          try {
+            const rawLinks = liveLinksStr || staticLinksStr;
+            if (rawLinks) links = JSON.parse(rawLinks);
+          } catch (e) {}
+
+          if (Object.keys(links).length === 0 && fs.existsSync(".lighthouseci/links.json")) {
+            try {
+              links = JSON.parse(fs.readFileSync(".lighthouseci/links.json", "utf8"));
+            } catch (e) {}
+          }
+
+          let md = "### Lighthouse Audit Results\n\n";
+          md += `**Target URL:** \`${targetUrl}\`\n\n`;
+
+          if (manifest && Array.isArray(manifest) && manifest.length > 0) {
+            const representativeRuns = manifest.filter(r => r.isRepresentativeRun);
+            const runsToDisplay = representativeRuns.length > 0 ? representativeRuns : [manifest[0]];
+
+            runsToDisplay.forEach((run, idx) => {
+              const summary = run.summary || {};
+              const reportUrl = links[run.url] || links[Object.keys(links)[idx]] || null;
+
+              const getStatus = (score) => {
+                if (score === undefined || score === null) return { pct: "N/A", status: "N/A" };
+                const pct = Math.round(score * 100);
+                if (pct >= 90) return { pct: `${pct}%`, status: "Pass" };
+                if (pct >= 50) return { pct: `${pct}%`, status: "Average" };
+                return { pct: `${pct}%`, status: "Fail" };
+              };
+
+              const perf = getStatus(summary.performance);
+              const a11y = getStatus(summary.accessibility);
+              const bp = getStatus(summary["best-practices"]);
+              const seo = getStatus(summary.seo);
+
+              const pageLabel = run.url
+                ? (() => {
+                    try {
+                      const u = new URL(run.url);
+                      const path = u.pathname === "/" ? "(Home)" : u.pathname;
+                      return `**Path: \`${path}\`**`;
+                    } catch (e) {
+                      return `**URL: \`${run.url}\`**`;
+                    }
+                  })()
+                : `**Run ${idx + 1}**`;
+              md += `${pageLabel}\n\n`;
+
+              md += "| Category | Score | Status |\n";
+              md += "| :--- | :---: | :--- |\n";
+              md += `| Performance | **${perf.pct}** | ${perf.status} |\n`;
+              md += `| Accessibility | **${a11y.pct}** | ${a11y.status} |\n`;
+              md += `| Best Practices | **${bp.pct}** | ${bp.status} |\n`;
+              md += `| SEO | **${seo.pct}** | ${seo.status} |\n\n`;
+
+              if (reportUrl) {
+                md += `[View Interactive Lighthouse Report](${reportUrl})\n\n`;
+              }
+            });
+            md += "*Full reports saved in workflow artifacts (`lhci-artifacts`).*\n";
+          } else {
+            md += "Note: *No Lighthouse audit manifest could be parsed. Check workflow artifacts for raw logs.*\n";
+          }
+
+          if (summaryFile) {
+            fs.appendFileSync(summaryFile, md);
+          }
+
+          if (outputFile) {
+            const eof = "EOF_" + Math.random().toString(36).substring(2);
+            fs.appendFileSync(outputFile, `summary_markdown<<${eof}\n${md}\n${eof}\n`);
+          }
+        '
+
+    - name: Find existing PR comment
+      if: inputs.append_to_pr == 'true' && github.event_name == 'pull_request'
+      uses: peter-evans/find-comment@v3
+      id: find_comment
+      with:
+        issue-number: ${{ github.event.pull_request.number }}
+        comment-author: 'github-actions[bot]'
+        body-includes: 'Preview Deployments Ready!'
+
+    - name: Append Lighthouse results to PR comment
+      if: inputs.append_to_pr == 'true' && github.event_name == 'pull_request' && steps.find_comment.outputs.comment-id != ''
+      uses: peter-evans/create-or-update-comment@v4
+      with:
+        token: ${{ inputs.github_token }}
+        comment-id: ${{ steps.find_comment.outputs.comment-id }}
+        body: |
+          
+          ---
+          ${{ steps.parse_lh.outputs.summary_markdown }}
+        edit-mode: append

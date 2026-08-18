@@ -1,0 +1,49 @@
+# Example: High-Availability Project deploying to BOTH Cloudflare Pages and Vercel
+# Place this in your project repository at: .github/workflows/ci-cd.yml
+
+name: Multi-Cloud CI/CD Pipeline
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: write
+  deployments: write
+
+jobs:
+  deploy:
+    # Replace 'my-org/shared-ci-cd' with your actual repository name
+    uses: my-org/shared-ci-cd/.github/workflows/deploy-app.yml@v1
+    with:
+      # Runtime & Build
+      node_version: '22'
+      package_manager: 'npm'
+      build_command: 'npm run build'
+      dist_dir: 'dist'
+
+      # Target Platforms (Both deployed in parallel)
+      enable_cloudflare: true
+      cloudflare_project_name: 'my-production-app'
+
+      enable_vercel: true
+      vercel_project_id: ${{ vars.VERCEL_PROJECT_ID }}
+      vercel_org_id: ${{ vars.VERCEL_ORG_ID }}
+
+      # Audits & Feedback
+      enable_pr_comment: true
+      enable_lighthouse: true
+      lighthouse_routes: |
+        /
+        /pricing
+        /dashboard
+
+    secrets: inherit

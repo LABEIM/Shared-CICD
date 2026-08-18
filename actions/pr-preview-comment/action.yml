@@ -1,0 +1,102 @@
+name: 'Post PR Preview Comment'
+description: 'Posts or updates a GitHub PR comment with live preview deployment links for active platforms'
+
+inputs:
+  cloudflare_url:
+    description: 'Cloudflare Pages preview URL'
+    required: false
+    default: ''
+  vercel_url:
+    description: 'Vercel preview URL'
+    required: false
+    default: ''
+  custom_message:
+    description: 'Optional custom message to include in comment'
+    required: false
+    default: ''
+  github_token:
+    description: 'GitHub token with pull-requests: write permission'
+    required: false
+    default: ${{ github.token }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Download CF deploy URL artifact (fallback)
+      uses: actions/download-artifact@v4
+      with:
+        name: cf-deploy-url
+        path: .
+      continue-on-error: true
+
+    - name: Download Vercel deploy URL artifact (fallback)
+      uses: actions/download-artifact@v4
+      with:
+        name: vercel-deploy-url
+        path: .
+      continue-on-error: true
+
+    - name: Build comment markdown body
+      id: build_body
+      shell: bash
+      env:
+        CF_URL: ${{ inputs.cloudflare_url }}
+        VERCEL_URL: ${{ inputs.vercel_url }}
+        CUSTOM_MSG: ${{ inputs.custom_message }}
+      run: |
+        CF_CLEAN=$(echo "$CF_URL" | tr -cd 'a-zA-Z0-9.:/_-')
+        if [ -z "$CF_CLEAN" ] && [ -f cf_deploy_url.txt ]; then
+          CF_CLEAN=$(cat cf_deploy_url.txt | tr -cd 'a-zA-Z0-9.:/_-')
+        fi
+
+        VERCEL_CLEAN=$(echo "$VERCEL_URL" | tr -cd 'a-zA-Z0-9.:/_-')
+        if [ -z "$VERCEL_CLEAN" ] && [ -f vercel_deploy_url.txt ]; then
+          VERCEL_CLEAN=$(cat vercel_deploy_url.txt | tr -cd 'a-zA-Z0-9.:/_-')
+        fi
+
+        {
+          echo "body<<COMMENT_EOF"
+          echo "### Preview Deployments Ready"
+          echo ""
+          if [ -n "$CUSTOM_MSG" ]; then
+            echo "$CUSTOM_MSG"
+            echo ""
+          fi
+
+          echo "| Platform | Preview URL | Status |"
+          echo "| :--- | :--- | :---: |"
+
+          if [ -n "$CF_CLEAN" ]; then
+            echo "| **Cloudflare Pages** | [$CF_CLEAN]($CF_CLEAN) | Live |"
+          fi
+
+          if [ -n "$VERCEL_CLEAN" ]; then
+            echo "| **Vercel** | [$VERCEL_CLEAN]($VERCEL_CLEAN) | Live |"
+          fi
+
+          if [ -z "$CF_CLEAN" ] && [ -z "$VERCEL_CLEAN" ]; then
+            echo "| *No preview URLs captured* | - | Pending |"
+          fi
+
+          echo ""
+          echo "---"
+          echo "*Commit: \`${{ github.event.pull_request.head.sha || github.sha }}\` · Workflow: [#${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})*"
+          echo "COMMENT_EOF"
+        } >> "$GITHUB_OUTPUT"
+
+    - name: Find existing preview comment
+      uses: peter-evans/find-comment@v3
+      id: find_comment
+      with:
+        issue-number: ${{ github.event.pull_request.number }}
+        comment-author: 'github-actions[bot]'
+        body-includes: 'Preview Deployments Ready!'
+
+    - name: Create or update PR comment
+      uses: peter-evans/create-or-update-comment@v4
+      with:
+        token: ${{ inputs.github_token }}
+        comment-id: ${{ steps.find_comment.outputs.comment-id }}
+        issue-number: ${{ github.event.pull_request.number }}
+        body: ${{ steps.build_body.outputs.body }}
+        edit-mode: replace
