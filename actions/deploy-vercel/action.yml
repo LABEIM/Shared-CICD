@@ -1,7 +1,11 @@
 name: 'Deploy to Vercel (Prebuilt Output API v3)'
-description: 'Deploys pre-built static site to Vercel via Build Output API v3 with retries and REST API URL resolution'
+description: 'Deploys pre-built static site to Vercel via Build Output API v3 with retries, fast npx execution, and commit-filtered REST API URL resolution'
 
 inputs:
+  working_directory:
+    description: 'Working directory for projects in monorepos or subdirectories'
+    required: false
+    default: '.'
   project_id:
     description: 'Vercel Project ID'
     required: true
@@ -35,20 +39,18 @@ outputs:
 runs:
   using: 'composite'
   steps:
-    - name: Validate requirements
+    - name: Validate Vercel deployment credentials
       shell: bash
+      working-directory: ${{ inputs.working_directory }}
       run: |
         if [ -z "${{ inputs.vercel_token }}" ] || [ -z "${{ inputs.project_id }}" ] || [ -z "${{ inputs.org_id }}" ]; then
           echo "::error::vercel_token, project_id, and org_id are required to deploy to Vercel."
           exit 1
         fi
 
-    - name: Install Vercel CLI
-      shell: bash
-      run: npm install --global vercel@latest
-
     - name: Pull Vercel project settings
       shell: bash
+      working-directory: ${{ inputs.working_directory }}
       env:
         VERCEL_ORG_ID: ${{ inputs.org_id }}
         VERCEL_PROJECT_ID: ${{ inputs.project_id }}
@@ -57,10 +59,11 @@ runs:
         if [ "${{ github.event_name }}" != "pull_request" ]; then
           ENV_ARG="production"
         fi
-        vercel pull --yes --environment="$ENV_ARG" --token="${{ inputs.vercel_token }}"
+        npx --yes vercel@latest pull --yes --environment="$ENV_ARG" --token="${{ inputs.vercel_token }}"
 
     - name: Build Vercel Output API structure
       shell: bash
+      working-directory: ${{ inputs.working_directory }}
       run: |
         DIST="${{ inputs.dist_dir }}"
         mkdir -p .vercel/output/static
@@ -76,6 +79,7 @@ runs:
     - name: Deploy to Vercel (with retry)
       id: deploy
       shell: bash
+      working-directory: ${{ inputs.working_directory }}
       env:
         VERCEL_ORG_ID: ${{ inputs.org_id }}
         VERCEL_PROJECT_ID: ${{ inputs.project_id }}
@@ -94,8 +98,8 @@ runs:
         DEPLOY_EXIT=1
         for ATTEMPT in $(seq 1 $MAX_RETRIES); do
           echo "::group::Vercel deployment attempt $ATTEMPT/$MAX_RETRIES"
-          vercel deploy --prebuilt $PROD_FLAG --yes --token="${{ inputs.vercel_token }}" 2>&1
-          DEPLOY_EXIT=$?
+          npx --yes vercel@latest deploy --prebuilt $PROD_FLAG --yes --token="${{ inputs.vercel_token }}" 2>&1 | tee vercel_deploy.log
+          DEPLOY_EXIT=${PIPESTATUS[0]}
           echo "::endgroup::"
           if [ "$DEPLOY_EXIT" -eq 0 ]; then
             echo "Deployment succeeded on attempt $ATTEMPT"
@@ -114,23 +118,37 @@ runs:
     - name: Resolve Vercel deployment URL via REST API
       id: resolve_url
       shell: bash
+      working-directory: ${{ inputs.working_directory }}
       env:
         VERCEL_PROJECT_ID: ${{ inputs.project_id }}
         VERCEL_ORG_ID: ${{ inputs.org_id }}
         VERCEL_TOKEN: ${{ inputs.vercel_token }}
+        COMMIT_SHA: ${{ github.sha }}
       run: |
-        echo "Querying Vercel API for latest deployment URL..."
+        echo "Querying Vercel API for deployment URL matching commit ${COMMIT_SHA}..."
         API_RESPONSE=$(curl -sf \
           -H "Authorization: Bearer ${VERCEL_TOKEN}" \
-          "https://api.vercel.com/v6/deployments?projectId=${VERCEL_PROJECT_ID}&teamId=${VERCEL_ORG_ID}&limit=1" \
+          "https://api.vercel.com/v6/deployments?projectId=${VERCEL_PROJECT_ID}&teamId=${VERCEL_ORG_ID}&limit=10" \
           || echo "")
 
-        if command -v jq &>/dev/null; then
-          DEPLOY_HOST=$(echo "$API_RESPONSE" | jq -r '.deployments[0].url // empty' 2>/dev/null)
-        else
-          DEPLOY_HOST=$(echo "$API_RESPONSE" \
-            | grep -oP '"url"\s*:\s*"\K[^"]+' \
-            | head -1)
+        DEPLOY_HOST=""
+        if [ -n "$API_RESPONSE" ]; then
+          DEPLOY_HOST=$(node -e '
+            try {
+              const res = JSON.parse(process.argv[1]);
+              const sha = process.env.COMMIT_SHA;
+              const deps = res.deployments || [];
+              const match = deps.find(d => d.meta && (d.meta.githubCommitSha === sha || d.meta.commitSha === sha)) || deps[0];
+              if (match && match.url) {
+                console.log(match.url);
+              }
+            } catch (e) {}
+          ' "$API_RESPONSE")
+        fi
+
+        # Fallback: inspect vercel_deploy.log if API query didn't find URL
+        if [ -z "$DEPLOY_HOST" ] && [ -f vercel_deploy.log ]; then
+          DEPLOY_HOST=$(grep -oP 'https://[a-zA-Z0-9.-]+\.vercel\.app' vercel_deploy.log | head -1 | tr -cd 'a-zA-Z0-9.:/_-' || true)
         fi
 
         if [ -n "$DEPLOY_HOST" ]; then
@@ -140,22 +158,15 @@ runs:
           esac
           echo "Resolved Vercel deployment URL: $DEPLOY_URL"
         else
-          echo "::warning::Could not resolve Vercel deployment URL via REST API."
+          echo "::warning::Could not resolve Vercel deployment URL via API or logs."
           DEPLOY_URL=""
         fi
 
-        echo "$DEPLOY_URL" > vercel_deploy_url.txt
         echo "deploy_url=$DEPLOY_URL" >> "$GITHUB_OUTPUT"
-
-    - name: Upload Vercel deploy URL artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: vercel-deploy-url
-        path: vercel_deploy_url.txt
-        retention-days: 1
 
     - name: Record Vercel deployment summary
       shell: bash
+      working-directory: ${{ inputs.working_directory }}
       env:
         TARGET_BRANCH: ${{ github.head_ref || github.ref_name }}
       run: |

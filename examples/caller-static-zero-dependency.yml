@@ -31,11 +31,12 @@ jobs:
       enable_vercel: false
 
       # Zero-config static auto-detection handles the rest automatically:
-      # - Automatically detects absence of package.json and skips npm install
+      # - Automatically detects absence of package.json and skips dependency setup
       # - Automatically detects static site and skips npm run build
-      # - Automatically detects static source files (root index.html or public/) into dist
+      # - Automatically stages static source files (root index.html or public/) into dist
       
       # Optional customizations (uncomment if using a non-standard folder):
+      # working_directory: '.'      # App subfolder if in a monorepo
       # dist_dir: 'public'          # If your static files are kept in a subfolder
       # package_manager: 'none'     # Explicitly disable package manager runtime
       # build_command: 'none'       # Explicitly declare no build step

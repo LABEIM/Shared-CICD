@@ -3,17 +3,24 @@ name: Deploy Web Application
 on:
   workflow_call:
     inputs:
+      # Monorepo & Working Directory
+      working_directory:
+        description: 'Working directory for projects in monorepos or subdirectories'
+        required: false
+        type: string
+        default: '.'
+
       # Runtime & Build Settings
       node_version:
-        description: 'Node.js version'
+        description: 'Node.js version (or "auto" for .nvmrc / .node-version)'
         required: false
         type: string
         default: '22'
       package_manager:
-        description: 'Package manager (npm, pnpm, bun, yarn, none)'
+        description: 'Package manager ("auto", "npm", "pnpm", "bun", "yarn", "none", "static")'
         required: false
         type: string
-        default: 'npm'
+        default: 'auto'
       install_command:
         description: 'Custom dependency installation command (or "none" to skip)'
         required: false
@@ -25,12 +32,12 @@ on:
         type: string
         default: ''
       build_command:
-        description: 'Build command to generate static files (or "none" to skip)'
+        description: 'Build command to generate static files (or "none" to skip, or "auto")'
         required: false
         type: string
         default: 'npm run build'
       dist_dir:
-        description: 'Directory containing built static files'
+        description: 'Directory containing built static files (or "auto" to detect standard output folders)'
         required: false
         type: string
         default: 'dist'
@@ -110,45 +117,103 @@ jobs:
     name: Build & Validate
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    outputs:
+      artifact_hash: ${{ steps.hash.outputs.sha256 }}
+      build_duration: ${{ steps.build.outputs.duration }}
+      detected_dist_dir: ${{ steps.stage_dist.outputs.dist_dir }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Detect project environment & package manager
+        id: detect
+        shell: bash
+        working-directory: ${{ inputs.working_directory }}
+        run: |
+          REQ_MGR="${{ inputs.package_manager }}"
+          RESOLVED_MGR="npm"
+          CACHE_TYPE=""
+          LOCKFILE_PATH=""
+
+          if [ "$REQ_MGR" = "none" ] || [ "$REQ_MGR" = "static" ]; then
+            RESOLVED_MGR="none"
+          elif [ "$REQ_MGR" != "auto" ] && [ -n "$REQ_MGR" ]; then
+            RESOLVED_MGR="$REQ_MGR"
+            case "$RESOLVED_MGR" in
+              pnpm) CACHE_TYPE="pnpm"; LOCKFILE_PATH="${{ inputs.working_directory }}/pnpm-lock.yaml" ;;
+              yarn) CACHE_TYPE="yarn"; LOCKFILE_PATH="${{ inputs.working_directory }}/yarn.lock" ;;
+              bun)  CACHE_TYPE=""; LOCKFILE_PATH="${{ inputs.working_directory }}/bun.lockb" ;;
+              *)    CACHE_TYPE="npm"; LOCKFILE_PATH="${{ inputs.working_directory }}/package-lock.json" ;;
+            esac
+          else
+            # Auto-detection mode: inspect lockfiles and package.json
+            if [ -f "pnpm-lock.yaml" ]; then
+              RESOLVED_MGR="pnpm"
+              CACHE_TYPE="pnpm"
+              LOCKFILE_PATH="${{ inputs.working_directory }}/pnpm-lock.yaml"
+            elif [ -f "bun.lockb" ] || [ -f "bun.lock" ]; then
+              RESOLVED_MGR="bun"
+              CACHE_TYPE=""
+              LOCKFILE_PATH="${{ inputs.working_directory }}/bun.lockb"
+            elif [ -f "yarn.lock" ]; then
+              RESOLVED_MGR="yarn"
+              CACHE_TYPE="yarn"
+              LOCKFILE_PATH="${{ inputs.working_directory }}/yarn.lock"
+            elif [ -f "package-lock.json" ] || [ -f "npm-shrinkwrap.json" ]; then
+              RESOLVED_MGR="npm"
+              CACHE_TYPE="npm"
+              LOCKFILE_PATH="${{ inputs.working_directory }}/package-lock.json"
+            elif [ ! -f "package.json" ]; then
+              RESOLVED_MGR="none"
+            else
+              RESOLVED_MGR="npm"
+            fi
+          fi
+
+          echo "package_manager=${RESOLVED_MGR}" >> "$GITHUB_OUTPUT"
+          echo "cache_type=${CACHE_TYPE}" >> "$GITHUB_OUTPUT"
+          echo "lockfile_path=${LOCKFILE_PATH}" >> "$GITHUB_OUTPUT"
+          echo "Resolved Package Manager: $RESOLVED_MGR"
+
       - name: Setup pnpm (if requested)
-        if: inputs.package_manager == 'pnpm'
-        uses: pnpm/action-setup@v6
+        if: steps.detect.outputs.package_manager == 'pnpm'
+        uses: pnpm/action-setup@v4
         with:
           version: latest
 
       - name: Setup Bun (if requested)
-        if: inputs.package_manager == 'bun'
+        if: steps.detect.outputs.package_manager == 'bun'
         uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
 
       - name: Setup Node.js
-        if: inputs.package_manager != 'none' && inputs.package_manager != 'static'
+        if: steps.detect.outputs.package_manager != 'none' && steps.detect.outputs.package_manager != 'static'
         uses: actions/setup-node@v4
         with:
-          node-version: ${{ inputs.node_version }}
-          cache: ${{ ((inputs.package_manager == 'npm' && hashFiles('package-lock.json', 'npm-shrinkwrap.json') != '') || (inputs.package_manager == 'pnpm' && hashFiles('pnpm-lock.yaml') != '') || (inputs.package_manager == 'yarn' && hashFiles('yarn.lock') != '')) && inputs.package_manager || '' }}
+          node-version: ${{ inputs.node_version != 'auto' && inputs.node_version || '' }}
+          node-version-file: ${{ (inputs.node_version == 'auto' || inputs.node_version == '') && (hashFiles(format('{0}/.nvmrc', inputs.working_directory), format('{0}/.node-version', inputs.working_directory)) != '' && (hashFiles(format('{0}/.nvmrc', inputs.working_directory)) != '' && format('{0}/.nvmrc', inputs.working_directory) || format('{0}/.node-version', inputs.working_directory)) || '') || '' }}
+          cache: ${{ steps.detect.outputs.cache_type }}
+          cache-dependency-path: ${{ steps.detect.outputs.lockfile_path }}
 
       - name: Install dependencies
+        shell: bash
+        working-directory: ${{ inputs.working_directory }}
         run: |
           INSTALL_CMD="${{ inputs.install_command }}"
-          PKG_MGR="${{ inputs.package_manager }}"
+          PKG_MGR="${{ steps.detect.outputs.package_manager }}"
 
           if [ "$INSTALL_CMD" = "none" ] || [ "$INSTALL_CMD" = "false" ] || [ "$INSTALL_CMD" = "skip" ] || [ "$PKG_MGR" = "none" ] || [ "$PKG_MGR" = "static" ]; then
-            echo "Dependency installation skipped explicitly."
+            echo "Dependency installation skipped explicitly or no package manager required."
           elif [ -n "$INSTALL_CMD" ]; then
-            echo "Running custom install command..."
+            echo "Running custom install command: $INSTALL_CMD"
             eval "$INSTALL_CMD"
           elif [ ! -f "package.json" ]; then
             echo "No package.json detected. Zero-dependency static project identified — skipping dependency installation."
           else
             case "$PKG_MGR" in
               pnpm)
-                echo "Installing with pnpm..."
+                echo "Installing dependencies with pnpm..."
                 if [ -f "pnpm-lock.yaml" ]; then
                   pnpm install --frozen-lockfile
                 else
@@ -156,7 +221,7 @@ jobs:
                 fi
                 ;;
               bun)
-                echo "Installing with bun..."
+                echo "Installing dependencies with bun..."
                 if [ -f "bun.lockb" ] || [ -f "bun.lock" ]; then
                   bun install --frozen-lockfile
                 else
@@ -164,7 +229,7 @@ jobs:
                 fi
                 ;;
               yarn)
-                echo "Installing with yarn..."
+                echo "Installing dependencies with yarn..."
                 if [ -f "yarn.lock" ]; then
                   yarn install --frozen-lockfile
                 else
@@ -172,7 +237,7 @@ jobs:
                 fi
                 ;;
               *)
-                echo "Installing with npm..."
+                echo "Installing dependencies with npm..."
                 if [ -f "package-lock.json" ] || [ -f "npm-shrinkwrap.json" ]; then
                   npm ci
                 else
@@ -184,26 +249,35 @@ jobs:
 
       - name: Run Diagnostics / Checks
         if: inputs.check_command != ''
+        shell: bash
+        working-directory: ${{ inputs.working_directory }}
         run: |
           echo "Running check command: ${{ inputs.check_command }}"
           ${{ inputs.check_command }}
 
       - name: Build static site export
         id: build
+        shell: bash
+        working-directory: ${{ inputs.working_directory }}
         run: |
           BUILD_START=$(date +%s)
           BUILD_CMD="${{ inputs.build_command }}"
+          PKG_MGR="${{ steps.detect.outputs.package_manager }}"
 
           if [ "$BUILD_CMD" = "none" ] || [ "$BUILD_CMD" = "false" ] || [ "$BUILD_CMD" = "skip" ] || [ -z "$BUILD_CMD" ]; then
             echo "Static project detected: build step skipped."
-          elif [ "$BUILD_CMD" = "npm run build" ]; then
+          elif [ "$BUILD_CMD" = "npm run build" ] || [ "$BUILD_CMD" = "auto" ]; then
             if [ ! -f "package.json" ]; then
               echo "No package.json detected with default build command. Skipping build step for static project."
             elif ! node -e "const pkg=require('./package.json'); process.exit(pkg.scripts && pkg.scripts.build ? 0 : 1)" 2>/dev/null; then
-              echo "No 'build' script found in package.json. Skipping build step for static project."
+              echo "No 'build' script found in package.json. Skipping build step."
             else
-              echo "Running build command: $BUILD_CMD"
-              npm run build
+              case "$PKG_MGR" in
+                pnpm) echo "Running build: pnpm run build"; pnpm run build ;;
+                bun)  echo "Running build: bun run build"; bun run build ;;
+                yarn) echo "Running build: yarn build"; yarn build ;;
+                *)    echo "Running build: npm run build"; npm run build ;;
+              esac
             fi
           else
             echo "Running custom build command: $BUILD_CMD"
@@ -214,27 +288,50 @@ jobs:
           BUILD_DURATION=$((BUILD_END - BUILD_START))
           echo "duration=${BUILD_DURATION}s" >> "$GITHUB_OUTPUT"
 
-      - name: Stage static output directory (if needed)
+      - name: Stage & Resolve static output directory
+        id: stage_dist
+        shell: bash
+        working-directory: ${{ inputs.working_directory }}
         run: |
-          TARGET_DIR="${{ inputs.dist_dir }}"
-          if [ ! -d "$TARGET_DIR" ]; then
-            if [ "$TARGET_DIR" = "dist" ]; then
-              if [ -d "public" ] && [ "$(ls -A public 2>/dev/null)" ]; then
-                echo "Directory 'dist' not found. Auto-staging static files from 'public/' into 'dist/'..."
-                mkdir -p dist
-                cp -r public/* dist/ 2>/dev/null || cp -r public/. dist/
-              elif [ -f "index.html" ]; then
-                echo "Directory 'dist' not found. Auto-staging static root files into 'dist/'..."
-                mkdir -p dist
-                find . -maxdepth 1 ! -name '.' ! -name 'dist' ! -name '.git' ! -name '.github' ! -name '.vercel' ! -name 'node_modules' ! -name '.lighthouseci' -exec cp -r {} dist/ \;
-              fi
+          REQ_DIR="${{ inputs.dist_dir }}"
+          FINAL_DIR="$REQ_DIR"
+
+          if [ "$REQ_DIR" = "auto" ] || [ ! -d "$REQ_DIR" ]; then
+            # Search for standard static framework output directories
+            if [ -d "dist" ] && [ "$(ls -A dist 2>/dev/null)" ]; then
+              FINAL_DIR="dist"
+            elif [ -d "out" ] && [ "$(ls -A out 2>/dev/null)" ]; then
+              FINAL_DIR="out"
+            elif [ -d "build" ] && [ "$(ls -A build 2>/dev/null)" ]; then
+              FINAL_DIR="build"
+            elif [ -d ".output/public" ] && [ "$(ls -A .output/public 2>/dev/null)" ]; then
+              FINAL_DIR=".output/public"
+            elif [ -d "_site" ] && [ "$(ls -A _site 2>/dev/null)" ]; then
+              FINAL_DIR="_site"
+            elif [ -d "site" ] && [ "$(ls -A site 2>/dev/null)" ]; then
+              FINAL_DIR="site"
+            elif [ -d "public" ] && [ "$(ls -A public 2>/dev/null)" ]; then
+              echo "Auto-staging static files from 'public/' into 'dist/'..."
+              mkdir -p dist
+              cp -r public/* dist/ 2>/dev/null || cp -r public/. dist/
+              FINAL_DIR="dist"
+            elif [ -f "index.html" ]; then
+              echo "Auto-staging static root files into 'dist/'..."
+              mkdir -p dist
+              find . -maxdepth 1 ! -name '.' ! -name 'dist' ! -name '.git' ! -name '.github' ! -name '.vercel' ! -name 'node_modules' ! -name '.lighthouseci' -exec cp -r {} dist/ \;
+              FINAL_DIR="dist"
             fi
           fi
 
+          echo "Resolved output directory: $FINAL_DIR"
+          echo "dist_dir=${FINAL_DIR}" >> "$GITHUB_OUTPUT"
+
       - name: Generate build artifact hash
         id: hash
+        shell: bash
+        working-directory: ${{ inputs.working_directory }}
         run: |
-          TARGET_DIR="${{ inputs.dist_dir }}"
+          TARGET_DIR="${{ steps.stage_dist.outputs.dist_dir }}"
           if [ -d "$TARGET_DIR" ]; then
             if [ "$TARGET_DIR" = "." ] || [ "$TARGET_DIR" = "./" ]; then
               HASH=$(find . -type f ! -path '*/.git/*' ! -path '*/.github/*' ! -path '*/node_modules/*' ! -path '*/.vercel/*' ! -path '*/.lighthouseci/*' -exec sha256sum {} \; | sort | sha256sum | cut -d' ' -f1)
@@ -251,15 +348,17 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: dist-static-build
-          path: ${{ inputs.dist_dir }}/
+          path: ${{ inputs.working_directory == '.' && format('{0}/', steps.stage_dist.outputs.dist_dir) || format('{0}/{1}/', inputs.working_directory, steps.stage_dist.outputs.dist_dir) }}
           retention-days: 3
 
       - name: Build summary
+        shell: bash
+        working-directory: ${{ inputs.working_directory }}
         env:
           BRANCH_NAME: ${{ github.ref_name }}
           COMMIT_SHA: ${{ github.sha }}
         run: |
-          TARGET_DIR="${{ inputs.dist_dir }}"
+          TARGET_DIR="${{ steps.stage_dist.outputs.dist_dir }}"
           DIR_SIZE="N/A"
           if [ -d "$TARGET_DIR" ]; then
             DIR_SIZE=$(du -sh "$TARGET_DIR" | cut -f1)
@@ -271,6 +370,8 @@ jobs:
             echo ""
             echo "| Metric | Value |"
             echo "| :--- | :--- |"
+            echo "| Package Manager | \`${{ steps.detect.outputs.package_manager }}\` |"
+            echo "| Output Directory | \`${TARGET_DIR}\` |"
             echo "| Build Duration | ${{ steps.build.outputs.duration }} |"
             echo "| Artifact SHA256 | \`${HASH:0:16}...\` |"
             echo "| Artifact Size | ${DIR_SIZE} |"
@@ -300,12 +401,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: dist-static-build
-          path: ${{ inputs.dist_dir }}/
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: ${{ inputs.node_version }}
+          path: _dist_assets/
 
       - name: Deploy to Cloudflare Pages via Wrangler
         id: deploy_cf
@@ -313,7 +409,7 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           PROJECT_NAME: ${{ inputs.cloudflare_project_name }}
-          DIST_DIR: ${{ inputs.dist_dir }}
+          DIST_DIR: _dist_assets
           PROD_BRANCH: ${{ inputs.production_branch }}
           RAW_HEAD_REF: ${{ github.head_ref }}
           RAW_REF_NAME: ${{ github.ref_name }}
@@ -326,17 +422,17 @@ jobs:
           BRANCH_NAME="${RAW_HEAD_REF:-$RAW_REF_NAME}"
 
           # Auto-create Pages project shell if it does not exist yet
-          npx wrangler pages project create "$PROJECT_NAME" --production-branch="$PROD_BRANCH" > /dev/null 2>&1 || true
+          npx --yes wrangler pages project create "$PROJECT_NAME" --production-branch="$PROD_BRANCH" > /dev/null 2>&1 || true
 
           # Deploy with retry logic (3 attempts, exponential backoff)
           MAX_RETRIES=3
           RETRY_DELAY=10
           for ATTEMPT in $(seq 1 $MAX_RETRIES); do
             echo "::group::Cloudflare deployment attempt $ATTEMPT/$MAX_RETRIES"
-            if npx wrangler pages deploy "$DIST_DIR" \
+            if npx --yes wrangler pages deploy "$DIST_DIR" \
               --project-name="$PROJECT_NAME" \
               --branch="$BRANCH_NAME" \
-              --commit-dirty=true 2>&1 | tee deploy.log; then
+              --commit-dirty=true 2>&1 | tee cf_deploy.log; then
               echo "::endgroup::"
               echo "Deployment succeeded on attempt $ATTEMPT"
               break
@@ -353,11 +449,16 @@ jobs:
           done
 
           CLEAN_BRANCH=$(echo "$BRANCH_NAME" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g; s/^-//; s/-$//')
-          PROD_URL=$(grep -i "Production URL:" deploy.log | grep -oP 'https://[a-zA-Z0-9.-]+\.pages\.dev' | head -1 | tr -cd 'a-zA-Z0-9.:/_-' || true)
-          BRANCH_PREVIEW_URL=$(grep -i "Branch Preview URL:" deploy.log | grep -oP 'https://[a-zA-Z0-9.-]+\.pages\.dev' | head -1 | tr -cd 'a-zA-Z0-9.:/_-' || true)
+          IS_PROD="false"
+          if [ "$BRANCH_NAME" = "$PROD_BRANCH" ] || [ "$CLEAN_BRANCH" = "main" ] || [ "$CLEAN_BRANCH" = "master" ]; then
+            IS_PROD="true"
+          fi
+
+          PROD_URL=$(grep -i "Production URL:" cf_deploy.log | grep -oP 'https://[a-zA-Z0-9.-]+\.pages\.dev' | head -1 | tr -cd 'a-zA-Z0-9.:/_-' || true)
+          BRANCH_PREVIEW_URL=$(grep -i "Branch Preview URL:" cf_deploy.log | grep -oP 'https://[a-zA-Z0-9.-]+\.pages\.dev' | head -1 | tr -cd 'a-zA-Z0-9.:/_-' || true)
 
           DEPLOY_URL=""
-          if [ "$CLEAN_BRANCH" = "$PROD_BRANCH" ] || [ "$CLEAN_BRANCH" = "main" ] || [ "$CLEAN_BRANCH" = "master" ]; then
+          if [ "$IS_PROD" = "true" ]; then
             if [ -n "$PROD_URL" ]; then
               DEPLOY_URL="$PROD_URL"
             else
@@ -370,7 +471,7 @@ jobs:
           fi
 
           if [ -z "$DEPLOY_URL" ]; then
-            DEPLOY_URL=$(sed 's/\x1B\[[0-9;]*[a-zA-Z]//g' deploy.log \
+            DEPLOY_URL=$(sed 's/\x1B\[[0-9;]*[a-zA-Z]//g' cf_deploy.log \
               | grep -oP 'https://[a-zA-Z0-9.-]+\.(pages\.dev|workers\.dev)' \
               | grep -iv 'dash\.cloudflare\|api\.cloudflare' \
               | head -1 \
@@ -378,7 +479,7 @@ jobs:
           fi
 
           if [ -z "$DEPLOY_URL" ] || ! echo "$DEPLOY_URL" | grep -q '^https://'; then
-            if [ "$CLEAN_BRANCH" = "$PROD_BRANCH" ] || [ "$CLEAN_BRANCH" = "main" ]; then
+            if [ "$IS_PROD" = "true" ]; then
               DEPLOY_URL="https://${PROJECT_NAME}.pages.dev"
             else
               DEPLOY_URL="https://${CLEAN_BRANCH}.${PROJECT_NAME}.pages.dev"
@@ -387,14 +488,6 @@ jobs:
 
           echo "Captured Cloudflare deployment URL: $DEPLOY_URL"
           echo "deploy_url=$DEPLOY_URL" >> "$GITHUB_OUTPUT"
-          echo "$DEPLOY_URL" > cf_deploy_url.txt
-
-      - name: Upload CF deploy URL artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: cf-deploy-url
-          path: cf_deploy_url.txt
-          retention-days: 1
 
       - name: Deployment summary
         env:
@@ -436,33 +529,25 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: dist-static-build
-          path: ${{ inputs.dist_dir }}/
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: ${{ inputs.node_version }}
-
-      - name: Install Vercel CLI
-        run: npm install --global vercel@latest
+          path: _dist_assets/
 
       - name: Pull Vercel project settings
         run: |
+          if [ -z "${{ secrets.VERCEL_TOKEN }}" ] || [ -z "$VERCEL_PROJECT_ID" ] || [ -z "$VERCEL_ORG_ID" ]; then
+            echo "::error::VERCEL_TOKEN, vercel_project_id, and vercel_org_id are required to deploy to Vercel."
+            exit 1
+          fi
+
           ENV_ARG="preview"
           if [ "${{ github.event_name }}" != "pull_request" ]; then
             ENV_ARG="production"
           fi
-          vercel pull --yes --environment="$ENV_ARG" --token=${{ secrets.VERCEL_TOKEN }}
+          npx --yes vercel@latest pull --yes --environment="$ENV_ARG" --token=${{ secrets.VERCEL_TOKEN }}
 
       - name: Build Vercel Output API structure
         run: |
-          DIST="${{ inputs.dist_dir }}"
           mkdir -p .vercel/output/static
-          if [ "$DIST" = "." ] || [ "$DIST" = "./" ]; then
-            find . -maxdepth 1 ! -name '.' ! -name '.git' ! -name '.github' ! -name '.vercel' ! -name 'node_modules' ! -name '.lighthouseci' -exec cp -r {} .vercel/output/static/ \;
-          else
-            cp -r "${DIST}"/. .vercel/output/static/
-          fi
+          cp -r _dist_assets/. .vercel/output/static/
           printf '{"version":3}\n' > .vercel/output/config.json
           echo "Vercel Output API structure ready:"
           ls -la .vercel/output/
@@ -480,8 +565,8 @@ jobs:
           DEPLOY_EXIT=1
           for ATTEMPT in $(seq 1 $MAX_RETRIES); do
             echo "::group::Vercel deployment attempt $ATTEMPT/$MAX_RETRIES"
-            vercel deploy --prebuilt $PROD_FLAG --yes --token=${{ secrets.VERCEL_TOKEN }} 2>&1
-            DEPLOY_EXIT=$?
+            npx --yes vercel@latest deploy --prebuilt $PROD_FLAG --yes --token=${{ secrets.VERCEL_TOKEN }} 2>&1 | tee vercel_deploy.log
+            DEPLOY_EXIT=${PIPESTATUS[0]}
             echo "::endgroup::"
             if [ "$DEPLOY_EXIT" -eq 0 ]; then
               echo "Deployment succeeded on attempt $ATTEMPT"
@@ -499,19 +584,32 @@ jobs:
 
       - name: Resolve Vercel deployment URL via REST API
         id: resolve_url
+        env:
+          COMMIT_SHA: ${{ github.sha }}
         run: |
-          echo "Querying Vercel API for latest deployment URL..."
+          echo "Querying Vercel API for latest deployment URL matching commit ${COMMIT_SHA}..."
           API_RESPONSE=$(curl -sf \
             -H "Authorization: Bearer ${{ secrets.VERCEL_TOKEN }}" \
-            "https://api.vercel.com/v6/deployments?projectId=${VERCEL_PROJECT_ID}&teamId=${VERCEL_ORG_ID}&limit=1" \
+            "https://api.vercel.com/v6/deployments?projectId=${VERCEL_PROJECT_ID}&teamId=${VERCEL_ORG_ID}&limit=10" \
             || echo "")
 
-          if command -v jq &>/dev/null; then
-            DEPLOY_HOST=$(echo "$API_RESPONSE" | jq -r '.deployments[0].url // empty' 2>/dev/null)
-          else
-            DEPLOY_HOST=$(echo "$API_RESPONSE" \
-              | grep -oP '"url"\s*:\s*"\K[^"]+' \
-              | head -1)
+          DEPLOY_HOST=""
+          if [ -n "$API_RESPONSE" ]; then
+            DEPLOY_HOST=$(node -e '
+              try {
+                const res = JSON.parse(process.argv[1]);
+                const sha = process.env.COMMIT_SHA;
+                const deps = res.deployments || [];
+                const match = deps.find(d => d.meta && (d.meta.githubCommitSha === sha || d.meta.commitSha === sha)) || deps[0];
+                if (match && match.url) {
+                  console.log(match.url);
+                }
+              } catch (e) {}
+            ' "$API_RESPONSE")
+          fi
+
+          if [ -z "$DEPLOY_HOST" ] && [ -f vercel_deploy.log ]; then
+            DEPLOY_HOST=$(grep -oP 'https://[a-zA-Z0-9.-]+\.vercel\.app' vercel_deploy.log | head -1 | tr -cd 'a-zA-Z0-9.:/_-' || true)
           fi
 
           if [ -n "$DEPLOY_HOST" ]; then
@@ -521,19 +619,11 @@ jobs:
             esac
             echo "Resolved Vercel deployment URL: $DEPLOY_URL"
           else
-            echo "::warning::Could not resolve Vercel deployment URL via REST API."
+            echo "::warning::Could not resolve Vercel deployment URL via REST API or logs."
             DEPLOY_URL=""
           fi
 
-          echo "$DEPLOY_URL" > vercel_deploy_url.txt
           echo "deploy_url=$DEPLOY_URL" >> "$GITHUB_OUTPUT"
-
-      - name: Upload Vercel deploy URL artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: vercel-deploy-url
-          path: vercel_deploy_url.txt
-          retention-days: 1
 
       - name: Deployment summary
         env:
@@ -564,20 +654,6 @@ jobs:
     permissions:
       pull-requests: write
     steps:
-      - name: Download CF deploy URL artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: cf-deploy-url
-          path: .
-        continue-on-error: true
-
-      - name: Download Vercel deploy URL artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: vercel-deploy-url
-          path: .
-        continue-on-error: true
-
       - name: Build comment body
         id: build_body
         env:
@@ -586,17 +662,11 @@ jobs:
           HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
           CF_CLEAN=$(echo "$CF_URL" | tr -cd 'a-zA-Z0-9.:/_-')
-          if [ -z "$CF_CLEAN" ] && [ -f cf_deploy_url.txt ]; then
-            CF_CLEAN=$(cat cf_deploy_url.txt | tr -cd 'a-zA-Z0-9.:/_-')
-          fi
-
           VERCEL_CLEAN=$(echo "$VERCEL_URL" | tr -cd 'a-zA-Z0-9.:/_-')
-          if [ -z "$VERCEL_CLEAN" ] && [ -f vercel_deploy_url.txt ]; then
-            VERCEL_CLEAN=$(cat vercel_deploy_url.txt | tr -cd 'a-zA-Z0-9.:/_-')
-          fi
 
           {
             echo "body<<COMMENT_EOF"
+            echo "<!-- shared-ci-cd:pr-preview -->"
             echo "### Preview Deployments Ready"
             echo ""
             echo "| Platform | Preview URL | Status |"
@@ -616,13 +686,15 @@ jobs:
       - name: Find existing preview comment
         uses: peter-evans/find-comment@v4
         id: find_comment
+        continue-on-error: true
         with:
           issue-number: ${{ github.event.pull_request.number }}
           comment-author: 'github-actions[bot]'
-          body-includes: 'Preview Deployments Ready'
+          body-includes: '<!-- shared-ci-cd:pr-preview -->'
 
       - name: Create or update PR comment
         uses: peter-evans/create-or-update-comment@v5
+        continue-on-error: true
         with:
           comment-id: ${{ steps.find_comment.outputs.comment-id }}
           issue-number: ${{ github.event.pull_request.number }}
@@ -653,21 +725,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: dist-static-build
-          path: ${{ inputs.dist_dir }}/
-
-      - name: Download CF deploy URL artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: cf-deploy-url
-          path: .
-        continue-on-error: true
-
-      - name: Download Vercel deploy URL artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: vercel-deploy-url
-          path: .
-        continue-on-error: true
+          path: _dist_assets/
 
       - name: Resolve target URL for Lighthouse
         id: target_url
@@ -680,13 +738,6 @@ jobs:
             TARGET=$(echo "$CF_NEEDS_URL" | tr -cd 'a-zA-Z0-9.:/_-')
           elif [ -n "$VERCEL_NEEDS_URL" ]; then
             TARGET=$(echo "$VERCEL_NEEDS_URL" | tr -cd 'a-zA-Z0-9.:/_-')
-          fi
-
-          if [ -z "$TARGET" ] && [ -f cf_deploy_url.txt ]; then
-            TARGET=$(cat cf_deploy_url.txt | tr -cd 'a-zA-Z0-9.:/_-')
-          fi
-          if [ -z "$TARGET" ] && [ -f vercel_deploy_url.txt ]; then
-            TARGET=$(cat vercel_deploy_url.txt | tr -cd 'a-zA-Z0-9.:/_-')
           fi
 
           echo "Resolved target URL: '${TARGET:-(static fallback)}'"
@@ -833,14 +884,16 @@ jobs:
         if: always() && github.event_name == 'pull_request'
         uses: peter-evans/find-comment@v4
         id: find_comment
+        continue-on-error: true
         with:
           issue-number: ${{ github.event.pull_request.number }}
           comment-author: 'github-actions[bot]'
-          body-includes: 'Preview Deployments Ready'
+          body-includes: '<!-- shared-ci-cd:pr-preview -->'
 
       - name: Append Lighthouse results to PR comment
         if: always() && github.event_name == 'pull_request' && steps.find_comment.outputs.comment-id != ''
         uses: peter-evans/create-or-update-comment@v5
+        continue-on-error: true
         with:
           comment-id: ${{ steps.find_comment.outputs.comment-id }}
           body: |

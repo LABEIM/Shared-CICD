@@ -2,6 +2,10 @@ name: 'Lighthouse CI Audit & Reporting'
 description: 'Runs Lighthouse CI performance and accessibility audits on live or static deployments and posts markdown reports'
 
 inputs:
+  working_directory:
+    description: 'Working directory for projects in monorepos or subdirectories'
+    required: false
+    default: '.'
   target_url:
     description: 'Base URL to audit (leave empty for static dist fallback)'
     required: false
@@ -35,35 +39,16 @@ outputs:
 runs:
   using: 'composite'
   steps:
-    - name: Download CF deploy URL artifact (fallback)
-      uses: actions/download-artifact@v4
-      with:
-        name: cf-deploy-url
-        path: .
-      continue-on-error: true
-
-    - name: Download Vercel deploy URL artifact (fallback)
-      uses: actions/download-artifact@v4
-      with:
-        name: vercel-deploy-url
-        path: .
-      continue-on-error: true
-
     - name: Resolve target audit URL
       id: resolve_target
       shell: bash
+      working-directory: ${{ inputs.working_directory }}
       env:
         PASSED_URL: ${{ inputs.target_url }}
       run: |
         TARGET=""
         if [ -n "$PASSED_URL" ]; then
           TARGET=$(echo "$PASSED_URL" | tr -cd 'a-zA-Z0-9.:/_-')
-        fi
-        if [ -z "$TARGET" ] && [ -f cf_deploy_url.txt ]; then
-          TARGET=$(cat cf_deploy_url.txt | tr -cd 'a-zA-Z0-9.:/_-')
-        fi
-        if [ -z "$TARGET" ] && [ -f vercel_deploy_url.txt ]; then
-          TARGET=$(cat vercel_deploy_url.txt | tr -cd 'a-zA-Z0-9.:/_-')
         fi
 
         echo "Resolved Lighthouse Target: '${TARGET:-(Static dist fallback)}'"
@@ -73,6 +58,7 @@ runs:
       if: steps.resolve_target.outputs.target_url != ''
       id: build_urls
       shell: bash
+      working-directory: ${{ inputs.working_directory }}
       env:
         BASE_URL: ${{ steps.resolve_target.outputs.target_url }}
         ROUTES: ${{ inputs.routes }}
@@ -112,6 +98,7 @@ runs:
     - name: Parse and format Lighthouse results
       id: parse_lh
       shell: bash
+      working-directory: ${{ inputs.working_directory }}
       env:
         TARGET_URL: ${{ steps.resolve_target.outputs.target_url }}
         LIVE_LINKS: ${{ steps.lighthouse_live.outputs.links }}
@@ -210,15 +197,19 @@ runs:
 
     - name: Find existing PR comment
       if: inputs.append_to_pr == 'true' && github.event_name == 'pull_request'
-      uses: peter-evans/find-comment@v4
       id: find_comment
+      continue-on-error: true
+      uses: peter-evans/find-comment@v4
       with:
+        token: ${{ inputs.github_token }}
         issue-number: ${{ github.event.pull_request.number }}
         comment-author: 'github-actions[bot]'
-        body-includes: 'Preview Deployments Ready'
+        body-includes: '<!-- shared-ci-cd:pr-preview -->'
 
     - name: Append Lighthouse results to PR comment
       if: inputs.append_to_pr == 'true' && github.event_name == 'pull_request' && steps.find_comment.outputs.comment-id != ''
+      id: append_comment
+      continue-on-error: true
       uses: peter-evans/create-or-update-comment@v5
       with:
         token: ${{ inputs.github_token }}

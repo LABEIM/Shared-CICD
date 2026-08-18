@@ -1,15 +1,19 @@
 name: 'Setup & Build Static Web App'
-description: 'Sets up runtime, installs dependencies, runs checks, builds static site, and uploads dist artifact'
+description: 'Sets up runtime, auto-detects package manager & output directories, installs dependencies, runs checks, builds static site, and uploads dist artifact'
 
 inputs:
+  working_directory:
+    description: 'Working directory for projects in monorepos or subdirectories'
+    required: false
+    default: '.'
   node_version:
-    description: 'Node.js version'
+    description: 'Node.js version (or "auto" to read from .nvmrc / .node-version)'
     required: false
     default: '22'
   package_manager:
-    description: 'Package manager to use (npm, pnpm, bun, yarn, none)'
+    description: 'Package manager to use ("auto", "npm", "pnpm", "bun", "yarn", "none", "static")'
     required: false
-    default: 'npm'
+    default: 'auto'
   install_command:
     description: 'Custom install command (leave blank to auto-detect from package_manager, or "none" to skip)'
     required: false
@@ -19,11 +23,11 @@ inputs:
     required: false
     default: ''
   build_command:
-    description: 'Build command to generate static export (or "none" for pre-built/static projects)'
+    description: 'Build command to generate static export (or "none" for pre-built/static projects, or "auto")'
     required: false
     default: 'npm run build'
   dist_dir:
-    description: 'Output directory containing built static files'
+    description: 'Output directory containing built static files (or "auto" to detect standard output folders)'
     required: false
     default: 'dist'
   upload_artifact:
@@ -46,37 +50,96 @@ outputs:
   build_duration:
     description: 'Build duration in seconds'
     value: ${{ steps.build.outputs.duration }}
+  detected_package_manager:
+    description: 'The package manager resolved and used'
+    value: ${{ steps.detect.outputs.package_manager }}
+  resolved_dist_dir:
+    description: 'The resolved output directory containing build assets'
+    value: ${{ steps.stage_dist.outputs.dist_dir }}
 
 runs:
   using: 'composite'
   steps:
+    - name: Detect project environment & package manager
+      id: detect
+      shell: bash
+      working-directory: ${{ inputs.working_directory }}
+      run: |
+        REQ_MGR="${{ inputs.package_manager }}"
+        RESOLVED_MGR="npm"
+        CACHE_TYPE=""
+        LOCKFILE_PATH=""
+
+        if [ "$REQ_MGR" = "none" ] || [ "$REQ_MGR" = "static" ]; then
+          RESOLVED_MGR="none"
+        elif [ "$REQ_MGR" != "auto" ] && [ -n "$REQ_MGR" ]; then
+          RESOLVED_MGR="$REQ_MGR"
+          case "$RESOLVED_MGR" in
+            pnpm) CACHE_TYPE="pnpm"; LOCKFILE_PATH="${{ inputs.working_directory }}/pnpm-lock.yaml" ;;
+            yarn) CACHE_TYPE="yarn"; LOCKFILE_PATH="${{ inputs.working_directory }}/yarn.lock" ;;
+            bun)  CACHE_TYPE=""; LOCKFILE_PATH="${{ inputs.working_directory }}/bun.lockb" ;;
+            *)    CACHE_TYPE="npm"; LOCKFILE_PATH="${{ inputs.working_directory }}/package-lock.json" ;;
+          esac
+        else
+          # Auto-detection mode: inspect lockfiles and package.json
+          if [ -f "pnpm-lock.yaml" ]; then
+            RESOLVED_MGR="pnpm"
+            CACHE_TYPE="pnpm"
+            LOCKFILE_PATH="${{ inputs.working_directory }}/pnpm-lock.yaml"
+          elif [ -f "bun.lockb" ] || [ -f "bun.lock" ]; then
+            RESOLVED_MGR="bun"
+            CACHE_TYPE=""
+            LOCKFILE_PATH="${{ inputs.working_directory }}/bun.lockb"
+          elif [ -f "yarn.lock" ]; then
+            RESOLVED_MGR="yarn"
+            CACHE_TYPE="yarn"
+            LOCKFILE_PATH="${{ inputs.working_directory }}/yarn.lock"
+          elif [ -f "package-lock.json" ] || [ -f "npm-shrinkwrap.json" ]; then
+            RESOLVED_MGR="npm"
+            CACHE_TYPE="npm"
+            LOCKFILE_PATH="${{ inputs.working_directory }}/package-lock.json"
+          elif [ ! -f "package.json" ]; then
+            RESOLVED_MGR="none"
+          else
+            RESOLVED_MGR="npm"
+          fi
+        fi
+
+        echo "package_manager=${RESOLVED_MGR}" >> "$GITHUB_OUTPUT"
+        echo "cache_type=${CACHE_TYPE}" >> "$GITHUB_OUTPUT"
+        echo "lockfile_path=${LOCKFILE_PATH}" >> "$GITHUB_OUTPUT"
+        echo "Resolved Package Manager: $RESOLVED_MGR"
+
     - name: Setup pnpm (if requested)
-      if: inputs.package_manager == 'pnpm'
-      uses: pnpm/action-setup@v6
+      if: steps.detect.outputs.package_manager == 'pnpm'
+      uses: pnpm/action-setup@v4
       with:
         version: latest
 
     - name: Setup Bun (if requested)
-      if: inputs.package_manager == 'bun'
+      if: steps.detect.outputs.package_manager == 'bun'
       uses: oven-sh/setup-bun@v2
       with:
         bun-version: latest
 
     - name: Setup Node.js
-      if: inputs.package_manager != 'none' && inputs.package_manager != 'static'
+      if: steps.detect.outputs.package_manager != 'none' && steps.detect.outputs.package_manager != 'static'
       uses: actions/setup-node@v4
       with:
-        node-version: ${{ inputs.node_version }}
-        cache: ${{ ((inputs.package_manager == 'npm' && hashFiles('package-lock.json', 'npm-shrinkwrap.json') != '') || (inputs.package_manager == 'pnpm' && hashFiles('pnpm-lock.yaml') != '') || (inputs.package_manager == 'yarn' && hashFiles('yarn.lock') != '')) && inputs.package_manager || '' }}
+        node-version: ${{ inputs.node_version != 'auto' && inputs.node_version || '' }}
+        node-version-file: ${{ (inputs.node_version == 'auto' || inputs.node_version == '') && (hashFiles(format('{0}/.nvmrc', inputs.working_directory), format('{0}/.node-version', inputs.working_directory)) != '' && (hashFiles(format('{0}/.nvmrc', inputs.working_directory)) != '' && format('{0}/.nvmrc', inputs.working_directory) || format('{0}/.node-version', inputs.working_directory)) || '') || '' }}
+        cache: ${{ steps.detect.outputs.cache_type }}
+        cache-dependency-path: ${{ steps.detect.outputs.lockfile_path }}
 
     - name: Install dependencies
       shell: bash
+      working-directory: ${{ inputs.working_directory }}
       run: |
         INSTALL_CMD="${{ inputs.install_command }}"
-        PKG_MGR="${{ inputs.package_manager }}"
+        PKG_MGR="${{ steps.detect.outputs.package_manager }}"
 
         if [ "$INSTALL_CMD" = "none" ] || [ "$INSTALL_CMD" = "false" ] || [ "$INSTALL_CMD" = "skip" ] || [ "$PKG_MGR" = "none" ] || [ "$PKG_MGR" = "static" ]; then
-          echo "Dependency installation skipped explicitly."
+          echo "Dependency installation skipped explicitly or no package manager required."
         elif [ -n "$INSTALL_CMD" ]; then
           echo "Running custom install command: $INSTALL_CMD"
           eval "$INSTALL_CMD"
@@ -85,7 +148,7 @@ runs:
         else
           case "$PKG_MGR" in
             pnpm)
-              echo "Installing with pnpm..."
+              echo "Installing dependencies with pnpm..."
               if [ -f "pnpm-lock.yaml" ]; then
                 pnpm install --frozen-lockfile
               else
@@ -93,7 +156,7 @@ runs:
               fi
               ;;
             bun)
-              echo "Installing with bun..."
+              echo "Installing dependencies with bun..."
               if [ -f "bun.lockb" ] || [ -f "bun.lock" ]; then
                 bun install --frozen-lockfile
               else
@@ -101,7 +164,7 @@ runs:
               fi
               ;;
             yarn)
-              echo "Installing with yarn..."
+              echo "Installing dependencies with yarn..."
               if [ -f "yarn.lock" ]; then
                 yarn install --frozen-lockfile
               else
@@ -109,7 +172,7 @@ runs:
               fi
               ;;
             *)
-              echo "Installing with npm..."
+              echo "Installing dependencies with npm..."
               if [ -f "package-lock.json" ] || [ -f "npm-shrinkwrap.json" ]; then
                 npm ci
               else
@@ -122,6 +185,7 @@ runs:
     - name: Run Diagnostics / Checks
       if: inputs.check_command != ''
       shell: bash
+      working-directory: ${{ inputs.working_directory }}
       run: |
         echo "Running diagnostics check: ${{ inputs.check_command }}"
         ${{ inputs.check_command }}
@@ -129,20 +193,26 @@ runs:
     - name: Build static site export
       id: build
       shell: bash
+      working-directory: ${{ inputs.working_directory }}
       run: |
         BUILD_START=$(date +%s)
         BUILD_CMD="${{ inputs.build_command }}"
+        PKG_MGR="${{ steps.detect.outputs.package_manager }}"
 
         if [ "$BUILD_CMD" = "none" ] || [ "$BUILD_CMD" = "false" ] || [ "$BUILD_CMD" = "skip" ] || [ -z "$BUILD_CMD" ]; then
           echo "Static project detected: build step skipped."
-        elif [ "$BUILD_CMD" = "npm run build" ]; then
+        elif [ "$BUILD_CMD" = "npm run build" ] || [ "$BUILD_CMD" = "auto" ]; then
           if [ ! -f "package.json" ]; then
             echo "No package.json detected with default build command. Skipping build step for static project."
           elif ! node -e "const pkg=require('./package.json'); process.exit(pkg.scripts && pkg.scripts.build ? 0 : 1)" 2>/dev/null; then
-            echo "No 'build' script found in package.json. Skipping build step for static project."
+            echo "No 'build' script found in package.json. Skipping build step."
           else
-            echo "Running build command: $BUILD_CMD"
-            npm run build
+            case "$PKG_MGR" in
+              pnpm) echo "Running build: pnpm run build"; pnpm run build ;;
+              bun)  echo "Running build: bun run build"; bun run build ;;
+              yarn) echo "Running build: yarn build"; yarn build ;;
+              *)    echo "Running build: npm run build"; npm run build ;;
+            esac
           fi
         else
           echo "Running custom build command: $BUILD_CMD"
@@ -153,29 +223,50 @@ runs:
         BUILD_DURATION=$((BUILD_END - BUILD_START))
         echo "duration=${BUILD_DURATION}s" >> "$GITHUB_OUTPUT"
 
-    - name: Stage static output directory (if needed)
+    - name: Stage & Resolve static output directory
+      id: stage_dist
       shell: bash
+      working-directory: ${{ inputs.working_directory }}
       run: |
-        TARGET_DIR="${{ inputs.dist_dir }}"
-        if [ ! -d "$TARGET_DIR" ]; then
-          if [ "$TARGET_DIR" = "dist" ]; then
-            if [ -d "public" ] && [ "$(ls -A public 2>/dev/null)" ]; then
-              echo "Directory 'dist' not found. Auto-staging static files from 'public/' into 'dist/'..."
-              mkdir -p dist
-              cp -r public/* dist/ 2>/dev/null || cp -r public/. dist/
-            elif [ -f "index.html" ]; then
-              echo "Directory 'dist' not found. Auto-staging static root files into 'dist/'..."
-              mkdir -p dist
-              find . -maxdepth 1 ! -name '.' ! -name 'dist' ! -name '.git' ! -name '.github' ! -name '.vercel' ! -name 'node_modules' ! -name '.lighthouseci' -exec cp -r {} dist/ \;
-            fi
+        REQ_DIR="${{ inputs.dist_dir }}"
+        FINAL_DIR="$REQ_DIR"
+
+        if [ "$REQ_DIR" = "auto" ] || [ ! -d "$REQ_DIR" ]; then
+          # Search for standard static framework output directories
+          if [ -d "dist" ] && [ "$(ls -A dist 2>/dev/null)" ]; then
+            FINAL_DIR="dist"
+          elif [ -d "out" ] && [ "$(ls -A out 2>/dev/null)" ]; then
+            FINAL_DIR="out"
+          elif [ -d "build" ] && [ "$(ls -A build 2>/dev/null)" ]; then
+            FINAL_DIR="build"
+          elif [ -d ".output/public" ] && [ "$(ls -A .output/public 2>/dev/null)" ]; then
+            FINAL_DIR=".output/public"
+          elif [ -d "_site" ] && [ "$(ls -A _site 2>/dev/null)" ]; then
+            FINAL_DIR="_site"
+          elif [ -d "site" ] && [ "$(ls -A site 2>/dev/null)" ]; then
+            FINAL_DIR="site"
+          elif [ -d "public" ] && [ "$(ls -A public 2>/dev/null)" ]; then
+            echo "Auto-staging static files from 'public/' into 'dist/'..."
+            mkdir -p dist
+            cp -r public/* dist/ 2>/dev/null || cp -r public/. dist/
+            FINAL_DIR="dist"
+          elif [ -f "index.html" ]; then
+            echo "Auto-staging static root files into 'dist/'..."
+            mkdir -p dist
+            find . -maxdepth 1 ! -name '.' ! -name 'dist' ! -name '.git' ! -name '.github' ! -name '.vercel' ! -name 'node_modules' ! -name '.lighthouseci' -exec cp -r {} dist/ \;
+            FINAL_DIR="dist"
           fi
         fi
+
+        echo "Resolved output directory: $FINAL_DIR"
+        echo "dist_dir=${FINAL_DIR}" >> "$GITHUB_OUTPUT"
 
     - name: Generate build artifact hash
       id: hash
       shell: bash
+      working-directory: ${{ inputs.working_directory }}
       run: |
-        TARGET_DIR="${{ inputs.dist_dir }}"
+        TARGET_DIR="${{ steps.stage_dist.outputs.dist_dir }}"
         if [ -d "$TARGET_DIR" ]; then
           if [ "$TARGET_DIR" = "." ] || [ "$TARGET_DIR" = "./" ]; then
             HASH=$(find . -type f ! -path '*/.git/*' ! -path '*/.github/*' ! -path '*/node_modules/*' ! -path '*/.vercel/*' ! -path '*/.lighthouseci/*' -exec sha256sum {} \; | sort | sha256sum | cut -d' ' -f1)
@@ -184,7 +275,7 @@ runs:
           fi
           echo "sha256=${HASH}" >> "$GITHUB_OUTPUT"
         else
-          echo "::warning::Dist directory '$TARGET_DIR' not found after build."
+          echo "::warning::Output directory '$TARGET_DIR' not found after build."
           echo "sha256=none" >> "$GITHUB_OUTPUT"
         fi
 
@@ -193,16 +284,17 @@ runs:
       uses: actions/upload-artifact@v4
       with:
         name: ${{ inputs.artifact_name }}
-        path: ${{ inputs.dist_dir }}/
+        path: ${{ inputs.working_directory == '.' && format('{0}/', steps.stage_dist.outputs.dist_dir) || format('{0}/{1}/', inputs.working_directory, steps.stage_dist.outputs.dist_dir) }}
         retention-days: ${{ inputs.artifact_retention_days }}
 
     - name: Build summary
       shell: bash
+      working-directory: ${{ inputs.working_directory }}
       env:
         BRANCH_NAME: ${{ github.ref_name }}
         COMMIT_SHA: ${{ github.sha }}
       run: |
-        TARGET_DIR="${{ inputs.dist_dir }}"
+        TARGET_DIR="${{ steps.stage_dist.outputs.dist_dir }}"
         DIR_SIZE="N/A"
         if [ -d "$TARGET_DIR" ]; then
           DIR_SIZE=$(du -sh "$TARGET_DIR" | cut -f1)
@@ -214,6 +306,8 @@ runs:
           echo ""
           echo "| Metric | Value |"
           echo "| :--- | :--- |"
+          echo "| Package Manager | \`${{ steps.detect.outputs.package_manager }}\` |"
+          echo "| Output Directory | \`${TARGET_DIR}\` |"
           echo "| Build Duration | ${{ steps.build.outputs.duration }} |"
           echo "| Artifact SHA256 | \`${HASH:0:16}...\` |"
           echo "| Artifact Size | ${DIR_SIZE} |"

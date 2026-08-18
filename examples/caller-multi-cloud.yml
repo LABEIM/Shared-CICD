@@ -26,9 +26,9 @@ jobs:
     with:
       # Runtime & Build
       node_version: '22'
-      package_manager: 'npm'
+      package_manager: 'auto' # Auto-detects npm, pnpm, bun, or yarn
       build_command: 'npm run build'
-      dist_dir: 'dist'
+      dist_dir: 'auto'
 
       # Target Platforms (Both deployed in parallel)
       enable_cloudflare: true

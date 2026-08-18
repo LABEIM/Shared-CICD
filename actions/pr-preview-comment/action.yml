@@ -22,20 +22,6 @@ inputs:
 runs:
   using: 'composite'
   steps:
-    - name: Download CF deploy URL artifact (fallback)
-      uses: actions/download-artifact@v4
-      with:
-        name: cf-deploy-url
-        path: .
-      continue-on-error: true
-
-    - name: Download Vercel deploy URL artifact (fallback)
-      uses: actions/download-artifact@v4
-      with:
-        name: vercel-deploy-url
-        path: .
-      continue-on-error: true
-
     - name: Build comment markdown body
       id: build_body
       shell: bash
@@ -46,17 +32,11 @@ runs:
         HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
       run: |
         CF_CLEAN=$(echo "$CF_URL" | tr -cd 'a-zA-Z0-9.:/_-')
-        if [ -z "$CF_CLEAN" ] && [ -f cf_deploy_url.txt ]; then
-          CF_CLEAN=$(cat cf_deploy_url.txt | tr -cd 'a-zA-Z0-9.:/_-')
-        fi
-
         VERCEL_CLEAN=$(echo "$VERCEL_URL" | tr -cd 'a-zA-Z0-9.:/_-')
-        if [ -z "$VERCEL_CLEAN" ] && [ -f vercel_deploy_url.txt ]; then
-          VERCEL_CLEAN=$(cat vercel_deploy_url.txt | tr -cd 'a-zA-Z0-9.:/_-')
-        fi
 
         {
           echo "body<<COMMENT_EOF"
+          echo "<!-- shared-ci-cd:pr-preview -->"
           echo "### Preview Deployments Ready"
           echo ""
           if [ -n "$CUSTOM_MSG" ]; then
@@ -86,14 +66,18 @@ runs:
         } >> "$GITHUB_OUTPUT"
 
     - name: Find existing preview comment
-      uses: peter-evans/find-comment@v4
       id: find_comment
+      continue-on-error: true
+      uses: peter-evans/find-comment@v4
       with:
+        token: ${{ inputs.github_token }}
         issue-number: ${{ github.event.pull_request.number }}
         comment-author: 'github-actions[bot]'
-        body-includes: 'Preview Deployments Ready'
+        body-includes: '<!-- shared-ci-cd:pr-preview -->'
 
     - name: Create or update PR comment
+      id: post_comment
+      continue-on-error: true
       uses: peter-evans/create-or-update-comment@v5
       with:
         token: ${{ inputs.github_token }}

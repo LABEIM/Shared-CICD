@@ -26,15 +26,15 @@ jobs:
     with:
       # Runtime & Build
       node_version: '22'
-      package_manager: 'npm' # npm | pnpm | bun | yarn
+      package_manager: 'auto' # Auto-detects npm, pnpm, bun, yarn, or none
       build_command: 'npm run build'
       check_command: 'npx astro check' # or 'npm run lint'
-      dist_dir: 'dist'
+      dist_dir: 'auto' # Auto-detects dist, out, build, .output/public, etc.
 
       # Target Platforms
       enable_cloudflare: true
       cloudflare_project_name: 'my-web-project'
-      enable_vercel: false # Vercel is disabled and consumed 0 runner seconds
+      enable_vercel: false # Vercel is disabled and consumes 0 runner seconds
 
       # Audits & Feedback
       enable_pr_comment: true

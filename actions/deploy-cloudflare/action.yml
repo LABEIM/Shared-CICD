@@ -1,7 +1,11 @@
 name: 'Deploy to Cloudflare Pages'
-description: 'Deploys static assets to Cloudflare Pages via Wrangler with exponential retry and secret-safe URL resolution'
+description: 'Deploys static assets to Cloudflare Pages via Wrangler with exponential retry and deterministic URL resolution'
 
 inputs:
+  working_directory:
+    description: 'Working directory for projects in monorepos or subdirectories'
+    required: false
+    default: '.'
   project_name:
     description: 'Cloudflare Pages project name'
     required: true
@@ -42,6 +46,7 @@ runs:
     - name: Deploy to Cloudflare Pages via Wrangler
       id: deploy
       shell: bash
+      working-directory: ${{ inputs.working_directory }}
       env:
         CLOUDFLARE_API_TOKEN: ${{ inputs.api_token }}
         CLOUDFLARE_ACCOUNT_ID: ${{ inputs.account_id }}
@@ -65,16 +70,16 @@ runs:
         echo "Source Assets Directory: $DIST_DIR"
 
         # Auto-create Pages project shell if it does not exist yet
-        npx wrangler pages project create "$PROJECT_NAME" --production-branch="$PROD_BRANCH" > /dev/null 2>&1 || true
+        npx --yes wrangler pages project create "$PROJECT_NAME" --production-branch="$PROD_BRANCH" > /dev/null 2>&1 || true
 
         # Deploy with retry logic (exponential backoff)
         RETRY_DELAY=$INITIAL_RETRY_DELAY
         for ATTEMPT in $(seq 1 $MAX_RETRIES); do
           echo "::group::Cloudflare Pages deployment attempt $ATTEMPT/$MAX_RETRIES"
-          if npx wrangler pages deploy "$DIST_DIR" \
+          if npx --yes wrangler pages deploy "$DIST_DIR" \
             --project-name="$PROJECT_NAME" \
             --branch="$BRANCH_NAME" \
-            --commit-dirty=true 2>&1 | tee deploy.log; then
+            --commit-dirty=true 2>&1 | tee cf_deploy.log; then
             echo "::endgroup::"
             echo "Deployment succeeded on attempt $ATTEMPT"
             break
@@ -97,8 +102,8 @@ runs:
         fi
 
         # Parse wrangler deploy output for canonical Production URL or Branch Preview URL
-        PROD_URL=$(grep -i "Production URL:" deploy.log | grep -oP 'https://[a-zA-Z0-9.-]+\.pages\.dev' | head -1 | tr -cd 'a-zA-Z0-9.:/_-' || true)
-        BRANCH_PREVIEW_URL=$(grep -i "Branch Preview URL:" deploy.log | grep -oP 'https://[a-zA-Z0-9.-]+\.pages\.dev' | head -1 | tr -cd 'a-zA-Z0-9.:/_-' || true)
+        PROD_URL=$(grep -i "Production URL:" cf_deploy.log | grep -oP 'https://[a-zA-Z0-9.-]+\.pages\.dev' | head -1 | tr -cd 'a-zA-Z0-9.:/_-' || true)
+        BRANCH_PREVIEW_URL=$(grep -i "Branch Preview URL:" cf_deploy.log | grep -oP 'https://[a-zA-Z0-9.-]+\.pages\.dev' | head -1 | tr -cd 'a-zA-Z0-9.:/_-' || true)
 
         DEPLOY_URL=""
         if [ "$IS_PROD" = "true" ]; then
@@ -113,9 +118,9 @@ runs:
           fi
         fi
 
-        # Fallback 1: look for general pages.dev/workers.dev URL
+        # Fallback 1: look for general pages.dev/workers.dev URL in logs
         if [ -z "$DEPLOY_URL" ]; then
-          DEPLOY_URL=$(sed 's/\x1B\[[0-9;]*[a-zA-Z]//g' deploy.log \
+          DEPLOY_URL=$(sed 's/\x1B\[[0-9;]*[a-zA-Z]//g' cf_deploy.log \
             | grep -oP 'https://[a-zA-Z0-9.-]+\.(pages\.dev|workers\.dev)' \
             | grep -iv 'dash\.cloudflare\|api\.cloudflare' \
             | head -1 \
@@ -135,18 +140,9 @@ runs:
         echo "deploy_url=$DEPLOY_URL" >> "$GITHUB_OUTPUT"
         echo "is_production=$IS_PROD" >> "$GITHUB_OUTPUT"
 
-        # Save to file as artifact fallback (immune to GitHub secret masking)
-        echo "$DEPLOY_URL" > cf_deploy_url.txt
-
-    - name: Upload CF deploy URL artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: cf-deploy-url
-        path: cf_deploy_url.txt
-        retention-days: 1
-
     - name: Record Cloudflare deployment summary
       shell: bash
+      working-directory: ${{ inputs.working_directory }}
       env:
         TARGET_BRANCH: ${{ github.head_ref || github.ref_name }}
       run: |

@@ -12,10 +12,10 @@ A production-grade, modular CI/CD framework for web applications. Built with a *
 flowchart TD
     subgraph SharedRepo ["Central Shared CI/CD Repository"]
         subgraph Actions ["Standalone Composite Actions"]
-            A1["actions/setup-and-build\n(npm / pnpm / bun / yarn + cache)"]
-            A2["actions/deploy-cloudflare\n(Wrangler + retries + secret-safe URL resolution)"]
-            A3["actions/deploy-vercel\n(Vercel Output API v3 + prebuilt + retries)"]
-            A4["actions/pr-preview-comment\n(Dynamic preview table + deduplication)"]
+            A1["actions/setup-and-build\n(Auto Lockfiles + Monorepo + Framework Out-Dirs)"]
+            A2["actions/deploy-cloudflare\n(Wrangler + retries + robust URL resolution)"]
+            A3["actions/deploy-vercel\n(Vercel Output API v3 + fast npx + SHA filtering)"]
+            A4["actions/pr-preview-comment\n(Dynamic preview table + anchor tags + safe perms)"]
             A5["actions/lighthouse-audit\n(Treosh LHCI + parsed scorecard summaries)"]
         end
 
@@ -36,12 +36,14 @@ flowchart TD
     subgraph Downstream ["Consumer Repositories"]
         P1["Project A (Cloudflare Only)\nuses: .../deploy-app.yml@v1\nenable_cloudflare: true\nenable_vercel: false"]
         P2["Project B (Cloudflare + Vercel)\nuses: .../deploy-app.yml@v1\nenable_cloudflare: true\nenable_vercel: true"]
-        P3["Project C (Custom Pipeline)\nuses individual composite actions"]
+        P3["Project C (Monorepo App)\nworking_directory: apps/web"]
+        P4["Project D (Custom Pipeline)\nuses individual composite actions"]
     end
 
     W1 --> P1
     W1 --> P2
-    A2 -.-> P3
+    W1 --> P3
+    A2 -.-> P4
 ```
 
 ---
@@ -49,7 +51,7 @@ flowchart TD
 ## Quickstart
 
 ### 1. Pure Static / Zero-Dependency Site (Vanilla HTML/CSS/JS)
-**Zero configuration required!** No `package.json` or build scripts needed. The workflow auto-detects static repositories, bypasses dependency installation and build steps, stages static assets, and deploys immediately:
+**Zero configuration required!** No `package.json` or build scripts needed. The workflow auto-detects static repositories, bypasses dependency installation and build steps, stages static assets, and deploys in **< 15 seconds**:
 
 ```yaml
 name: CI/CD Pipeline
@@ -81,7 +83,7 @@ jobs:
 
 ---
 
-### 2. Standard Framework Site on Cloudflare Pages
+### 2. Standard Framework Site (Auto-Detected Package Manager & Output)
 In your project repository, create `.github/workflows/ci-cd.yml`:
 
 ```yaml
@@ -108,12 +110,11 @@ jobs:
     uses: LABEIM/shared-ci-cd/.github/workflows/deploy-app.yml@v1
     with:
       node_version: '22'
-      package_manager: 'npm' # npm | pnpm | bun | yarn | none
-      build_command: 'npm run build'
-      dist_dir: 'dist'
+      package_manager: 'auto' # Auto-detects npm, pnpm, bun, or yarn from lockfile
+      dist_dir: 'auto'        # Auto-detects dist, out, build, .output/public, etc.
       enable_cloudflare: true
       cloudflare_project_name: 'my-web-app'
-      enable_vercel: false # Vercel is disabled & uses 0 runner minutes
+      enable_vercel: false
       lighthouse_routes: |
         /
         /about
@@ -123,16 +124,33 @@ jobs:
 
 ---
 
-### 3. Multi-Cloud Parallel Deployment (Cloudflare + Vercel Backup)
+### 3. Monorepo / Subdirectory App (Turborepo, Nx, pnpm workspaces)
+Deploy an application located in a subfolder (e.g. `apps/web`):
+
+```yaml
+jobs:
+  deploy:
+    uses: my-org/shared-ci-cd/.github/workflows/deploy-app.yml@v1
+    with:
+      working_directory: 'apps/web'
+      package_manager: 'auto'
+      dist_dir: 'auto'
+      enable_cloudflare: true
+      cloudflare_project_name: 'monorepo-web-app'
+    secrets: inherit
+```
+
+---
+
+### 4. Multi-Cloud Parallel Deployment (Cloudflare + Vercel Backup)
 ```yaml
 jobs:
   deploy:
     uses: LABEIM/shared-ci-cd/.github/workflows/deploy-app.yml@v1
     with:
       node_version: '22'
-      package_manager: 'pnpm'
-      build_command: 'pnpm build'
-      dist_dir: 'dist'
+      package_manager: 'auto'
+      dist_dir: 'auto'
 
       # Both platforms deployed in parallel
       enable_cloudflare: true
@@ -150,7 +168,7 @@ jobs:
 
 ---
 
-### 4. Using Standalone Composite Actions Directly
+### 5. Using Standalone Composite Actions Directly
 If your project has custom Docker builds, staging environments, or multi-step release gates, import composite actions directly:
 
 ```yaml
@@ -163,16 +181,16 @@ jobs:
       - name: Build site
         uses: LABEIM/shared-ci-cd/actions/setup-and-build@v1
         with:
-          package_manager: 'bun'
-          build_command: 'bun run build'
-          dist_dir: 'out'
+          package_manager: 'auto'
+          build_command: 'npm run build'
+          dist_dir: 'auto'
 
       - name: Deploy to Cloudflare
         id: cf
         uses: LABEIM/shared-ci-cd/actions/deploy-cloudflare@v1
         with:
           project_name: 'my-custom-app'
-          dist_dir: 'out'
+          dist_dir: 'dist'
           api_token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           account_id: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
@@ -193,12 +211,13 @@ jobs:
 
 | Input | Type | Default | Description |
 | :--- | :---: | :---: | :--- |
-| `node_version` | String | `'22'` | Node.js version |
-| `package_manager` | String | `'npm'` | Package manager (`npm`, `pnpm`, `bun`, `yarn`, `none`) |
+| `working_directory` | String | `'.'` | Working directory for monorepos or subfolder apps (e.g. `apps/web`) |
+| `node_version` | String | `'22'` | Node.js version (or `'auto'` to read `.nvmrc` / `.node-version`) |
+| `package_manager` | String | `'auto'` | Package manager (`'auto'`, `'npm'`, `'pnpm'`, `'bun'`, `'yarn'`, `'none'`, `'static'`) |
 | `install_command` | String | `''` | Custom install command override (or `'none'` to skip) |
 | `check_command` | String | `''` | Optional diagnostic check (e.g. `npx astro check`, `npm run lint`) |
-| `build_command` | String | `'npm run build'` | Static build command (or `'none'` for static/pre-built sites) |
-| `dist_dir` | String | `'dist'` | Static export directory to deploy (`'dist'`, `'public'`, `'.'`, etc.) |
+| `build_command` | String | `'npm run build'` | Static build command (or `'none'` for static/pre-built sites, or `'auto'`) |
+| `dist_dir` | String | `'dist'` | Static output directory (`'dist'`, `'out'`, `'build'`, `'.output/public'`, `'auto'`) |
 | `enable_cloudflare` | Boolean | `true` | Enable Cloudflare Pages deployment |
 | `cloudflare_project_name` | String | `''` | Cloudflare Pages project name |
 | `production_branch` | String | `'main'` | Production branch name |
@@ -259,7 +278,7 @@ with:
 ### Astro
 ```yaml
 with:
-  package_manager: 'npm'
+  package_manager: 'auto'
   check_command: 'npx astro check'
   build_command: 'npm run build'
   dist_dir: 'dist'
@@ -269,17 +288,32 @@ with:
 * Ensure `next.config.js` contains `output: 'export'`
 ```yaml
 with:
-  package_manager: 'pnpm'
-  build_command: 'pnpm build'
-  dist_dir: 'out'
+  package_manager: 'auto'
+  build_command: 'npm run build'
+  dist_dir: 'out' # or 'auto'
+```
+
+### Nuxt (Static / SSG)
+```yaml
+with:
+  package_manager: 'auto'
+  build_command: 'npx nuxi generate'
+  dist_dir: '.output/public' # or 'auto'
 ```
 
 ### Vite (React / Vue / Svelte)
 ```yaml
 with:
-  package_manager: 'bun'
-  build_command: 'bun run build'
+  package_manager: 'auto'
+  build_command: 'npm run build'
   dist_dir: 'dist'
+```
+
+### Hugo / Jekyll / MkDocs
+```yaml
+with:
+  package_manager: 'none'
+  dist_dir: 'public' # or 'site'
 ```
 
 ---
@@ -290,3 +324,4 @@ In addition to web deployment, this repository provides:
 * [`.github/workflows/codeql-scan.yml`](.github/workflows/codeql-scan.yml) - Static security analysis for JavaScript, TypeScript, Python, and Go.
 * [`.github/workflows/dependency-review.yml`](.github/workflows/dependency-review.yml) - High-severity supply chain vulnerability gate.
 * [`.github/workflows/stale-cleanup.yml`](.github/workflows/stale-cleanup.yml) - Automated issue and PR cleanup.
+* [`.github/workflows/dependabot-auto-merge.yml`](.github/workflows/dependabot-auto-merge.yml) - Auto-merging safe Dependabot updates.
