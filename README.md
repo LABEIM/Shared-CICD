@@ -208,12 +208,7 @@ To allow other repositories in your GitHub Organization to call this workflow:
   ```yaml
   uses: my-org/shared-ci-cd/.github/workflows/deploy-app.yml@v1
   ```
-* When publishing non-breaking updates or patches, update the floating `@v1` git tag:
-  ```bash
-  git tag -fa v1 -m "Release v1.2.0"
-  git push origin v1 --force
-  ```
-* Introduce `@v2` only when making breaking changes (e.g. changing mandatory inputs).
+* For detailed step-by-step tag management and release instructions, see [RELEASING.md](RELEASING.md).
 
 ---
 
