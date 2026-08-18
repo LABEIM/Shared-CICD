@@ -72,7 +72,7 @@ permissions:
 
 jobs:
   deploy:
-    uses: my-org/shared-ci-cd/.github/workflows/deploy-app.yml@v1
+    uses: LABEIM/shared-ci-cd/.github/workflows/deploy-app.yml@v1
     with:
       node_version: '22'
       package_manager: 'npm' # npm | pnpm | bun | yarn
@@ -94,7 +94,7 @@ jobs:
 ```yaml
 jobs:
   deploy:
-    uses: my-org/shared-ci-cd/.github/workflows/deploy-app.yml@v1
+    uses: LABEIM/shared-ci-cd/.github/workflows/deploy-app.yml@v1
     with:
       node_version: '22'
       package_manager: 'pnpm'
@@ -128,7 +128,7 @@ jobs:
       - uses: actions/checkout@v4
       
       - name: Build site
-        uses: my-org/shared-ci-cd/actions/setup-and-build@v1
+        uses: LABEIM/shared-ci-cd/actions/setup-and-build@v1
         with:
           package_manager: 'bun'
           build_command: 'bun run build'
@@ -136,7 +136,7 @@ jobs:
 
       - name: Deploy to Cloudflare
         id: cf
-        uses: my-org/shared-ci-cd/actions/deploy-cloudflare@v1
+        uses: LABEIM/shared-ci-cd/actions/deploy-cloudflare@v1
         with:
           project_name: 'my-custom-app'
           dist_dir: 'out'
@@ -145,7 +145,7 @@ jobs:
 
       - name: Post PR Comment
         if: github.event_name == 'pull_request'
-        uses: my-org/shared-ci-cd/actions/pr-preview-comment@v1
+        uses: LABEIM/shared-ci-cd/actions/pr-preview-comment@v1
         with:
           cloudflare_url: ${{ steps.cf.outputs.deploy_url }}
 ```
@@ -206,7 +206,7 @@ To allow other repositories in your GitHub Organization to call this workflow:
 ### 3. Release & Versioning Strategy
 * Consumer projects should reference major version tags (e.g. `@v1`):
   ```yaml
-  uses: my-org/shared-ci-cd/.github/workflows/deploy-app.yml@v1
+  uses: LABEIM/shared-ci-cd/.github/workflows/deploy-app.yml@v1
   ```
 * For detailed step-by-step tag management and release instructions, see [RELEASING.md](RELEASING.md).
 
