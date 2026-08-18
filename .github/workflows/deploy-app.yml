@@ -116,7 +116,7 @@ jobs:
 
       - name: Setup pnpm (if requested)
         if: inputs.package_manager == 'pnpm'
-        uses: pnpm/action-setup@v3
+        uses: pnpm/action-setup@v6
         with:
           version: latest
 
@@ -535,15 +535,15 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       - name: Find existing preview comment
-        uses: peter-evans/find-comment@v3
+        uses: peter-evans/find-comment@v4
         id: find_comment
         with:
           issue-number: ${{ github.event.pull_request.number }}
           comment-author: 'github-actions[bot]'
-          body-includes: 'Preview Deployments Ready!'
+          body-includes: 'Preview Deployments Ready'
 
       - name: Create or update PR comment
-        uses: peter-evans/create-or-update-comment@v4
+        uses: peter-evans/create-or-update-comment@v5
         with:
           comment-id: ${{ steps.find_comment.outputs.comment-id }}
           issue-number: ${{ github.event.pull_request.number }}
@@ -761,16 +761,16 @@ jobs:
 
       - name: Find existing PR comment
         if: always() && github.event_name == 'pull_request'
-        uses: peter-evans/find-comment@v3
+        uses: peter-evans/find-comment@v4
         id: find_comment
         with:
           issue-number: ${{ github.event.pull_request.number }}
           comment-author: 'github-actions[bot]'
-          body-includes: 'Preview Deployments Ready!'
+          body-includes: 'Preview Deployments Ready'
 
       - name: Append Lighthouse results to PR comment
         if: always() && github.event_name == 'pull_request' && steps.find_comment.outputs.comment-id != ''
-        uses: peter-evans/create-or-update-comment@v4
+        uses: peter-evans/create-or-update-comment@v5
         with:
           comment-id: ${{ steps.find_comment.outputs.comment-id }}
           body: |
