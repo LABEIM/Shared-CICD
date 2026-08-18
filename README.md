@@ -3,6 +3,7 @@
 A production-grade, modular CI/CD framework for web applications. Built with a **Hybrid Architecture** combining:
 1. **Composable Actions**: Independent building blocks for runtime setup, multi-cloud deployments, PR feedback, and performance audits.
 2. **Reusable Workflows**: Complete out-of-the-box pipelines that downstream projects can adopt with a 15-line workflow file.
+3. **Configurable Build Location**: Choose whether to build on GitHub Actions runners, or offload builds to Vercel/Cloudflare cloud compute to conserve GitHub runner minutes on private repositories.
 
 ---
 
@@ -13,14 +14,14 @@ flowchart TD
     subgraph SharedRepo ["Central Shared CI/CD Repository"]
         subgraph Actions ["Standalone Composite Actions"]
             A1["actions/setup-and-build\n(Auto Lockfiles + Monorepo + Framework Out-Dirs)"]
-            A2["actions/deploy-cloudflare\n(Wrangler + retries + robust URL resolution)"]
-            A3["actions/deploy-vercel\n(Vercel Output API v3 + fast npx + SHA filtering)"]
+            A2["actions/deploy-cloudflare\n(Wrangler direct deploy or Remote Deploy Hooks)"]
+            A3["actions/deploy-vercel\n(Prebuilt Output API v3 or Vercel Cloud Build)"]
             A4["actions/pr-preview-comment\n(Dynamic preview table + anchor tags + safe perms)"]
             A5["actions/lighthouse-audit\n(Treosh LHCI + parsed scorecard summaries)"]
         end
 
         subgraph Workflows ["Master Reusable Workflows"]
-            W1[".github/workflows/deploy-app.yml\n(Feature toggles: enable_cloudflare, enable_vercel, etc.)"]
+            W1[".github/workflows/deploy-app.yml\n(Feature toggles & build_location routing)"]
             W2[".github/workflows/codeql-scan.yml\n(CodeQL SAST security scanning)"]
             W3[".github/workflows/dependency-review.yml\n(Dependency vulnerability gate)"]
             W4[".github/workflows/stale-cleanup.yml\n(Automated stale issues / PR lifecycle)"]
@@ -35,15 +36,15 @@ flowchart TD
 
     subgraph Downstream ["Consumer Repositories"]
         P1["Project A (Cloudflare Only)\nuses: .../deploy-app.yml@v1\nenable_cloudflare: true\nenable_vercel: false"]
-        P2["Project B (Cloudflare + Vercel)\nuses: .../deploy-app.yml@v1\nenable_cloudflare: true\nenable_vercel: true"]
-        P3["Project C (Monorepo App)\nworking_directory: apps/web"]
-        P4["Project D (Custom Pipeline)\nuses individual composite actions"]
+        P2["Project B (Multi-Cloud)\nuses: .../deploy-app.yml@v1\nenable_cloudflare: true\nenable_vercel: true"]
+        P3["Project C (Quota Saver: Remote Vercel Build)\nbuild_location: 'vercel'\nenable_vercel: true"]
+        P4["Project D (Monorepo App)\nworking_directory: apps/web"]
     end
 
     W1 --> P1
     W1 --> P2
     W1 --> P3
-    A2 -.-> P4
+    W1 --> P4
 ```
 
 ---
@@ -124,7 +125,43 @@ jobs:
 
 ---
 
-### 3. Monorepo / Subdirectory App (Turborepo, Nx, pnpm workspaces)
+### 3. Saving GitHub Quota: Remote Platform Build (Vercel / Cloudflare)
+For **private repositories** where GitHub Actions free minutes (2,000 min/mo) are limited, you can delegate the compilation to Vercel or Cloudflare's free build infrastructure.
+
+#### Delegate build to Vercel (Consumes 0 GitHub Actions Build Minutes):
+```yaml
+jobs:
+  deploy:
+    uses: LABEIM/shared-ci-cd/.github/workflows/deploy-app.yml@v1
+    with:
+      # Skips GitHub runner build job completely!
+      build_location: 'vercel'
+      enable_vercel: true
+      vercel_project_id: ${{ vars.VERCEL_PROJECT_ID }}
+      vercel_org_id: ${{ vars.VERCEL_ORG_ID }}
+      enable_cloudflare: false
+      lighthouse_routes: |
+        /
+        /dashboard
+    secrets: inherit
+```
+
+#### Delegate build to Cloudflare Pages via Deploy Hook:
+```yaml
+jobs:
+  deploy:
+    uses: LABEIM/shared-ci-cd/.github/workflows/deploy-app.yml@v1
+    with:
+      build_location: 'cloudflare'
+      enable_cloudflare: true
+      cloudflare_project_name: 'my-cf-app'
+      enable_vercel: false
+    secrets: inherit
+```
+
+---
+
+### 4. Monorepo / Subdirectory App (Turborepo, Nx, pnpm workspaces)
 Deploy an application located in a subfolder (e.g. `apps/web`):
 
 ```yaml
@@ -142,7 +179,7 @@ jobs:
 
 ---
 
-### 4. Multi-Cloud Parallel Deployment (Cloudflare + Vercel Backup)
+### 5. Multi-Cloud Parallel Deployment (Cloudflare + Vercel Backup)
 ```yaml
 jobs:
   deploy:
@@ -168,7 +205,7 @@ jobs:
 
 ---
 
-### 5. Using Standalone Composite Actions Directly
+### 6. Using Standalone Composite Actions Directly
 If your project has custom Docker builds, staging environments, or multi-step release gates, import composite actions directly:
 
 ```yaml
@@ -211,6 +248,7 @@ jobs:
 
 | Input | Type | Default | Description |
 | :--- | :---: | :---: | :--- |
+| `build_location` | String | `'github'` | Where to build the app (`'github'`, `'vercel'`, `'cloudflare'`, `'none'`) |
 | `working_directory` | String | `'.'` | Working directory for monorepos or subfolder apps (e.g. `apps/web`) |
 | `node_version` | String | `'22'` | Node.js version (or `'auto'` to read `.nvmrc` / `.node-version`) |
 | `package_manager` | String | `'auto'` | Package manager (`'auto'`, `'npm'`, `'pnpm'`, `'bun'`, `'yarn'`, `'none'`, `'static'`) |
@@ -233,9 +271,21 @@ jobs:
 
 | Secret | Required | Description |
 | :--- | :---: | :--- |
-| `CLOUDFLARE_API_TOKEN` | If CF enabled | Cloudflare API token with `Account.Cloudflare Pages:Edit` permissions |
-| `CLOUDFLARE_ACCOUNT_ID` | If CF enabled | Cloudflare Account ID (32-character hexadecimal string) |
+| `CLOUDFLARE_API_TOKEN` | If CF Wrangler enabled | Cloudflare API token with `Account.Cloudflare Pages:Edit` permissions |
+| `CLOUDFLARE_ACCOUNT_ID` | If CF Wrangler enabled | Cloudflare Account ID (32-character hexadecimal string) |
+| `CLOUDFLARE_DEPLOY_HOOK_URL` | If CF remote build | Cloudflare Pages Deploy Hook URL to trigger remote Cloudflare build |
 | `VERCEL_TOKEN` | If Vercel enabled | Vercel personal access token or automation token |
+
+---
+
+## Build Location Comparison
+
+| Strategy | `build_location` | GitHub Runner Minutes Used | Platform Build Quota Used | Best For |
+| :--- | :---: | :---: | :---: | :--- |
+| **GitHub Actions** | `'github'` | Full build (~1–4 mins) | 0 mins | Public repos, multi-cloud synchronization, centralized lockfile verification |
+| **Vercel Remote** | `'vercel'` | ~10–15 seconds (CLI trigger) | Vercel Build Minutes | Private repos saving GitHub quota, SSR/ISR/Edge functions on Vercel |
+| **Cloudflare Remote**| `'cloudflare'` | ~2 seconds (Deploy Hook) | Cloudflare Free Builds (500/mo) | Private repos saving GitHub quota, Cloudflare Pages git projects |
+| **Zero Build** | `'none'` | ~5–10 seconds (Direct upload) | 0 mins | Vanilla HTML/CSS/JS, pre-built artifacts, static documentation |
 
 ---
 
@@ -247,6 +297,7 @@ Store shared infrastructure tokens once at the GitHub Organization level:
 * Add:
   - `CLOUDFLARE_API_TOKEN`
   - `CLOUDFLARE_ACCOUNT_ID`
+  - `CLOUDFLARE_DEPLOY_HOOK_URL` *(Optional)*
   - `VERCEL_TOKEN`
 * Set **Repository access** to `Selected repositories` or `All repositories`.
 
@@ -284,13 +335,20 @@ with:
   dist_dir: 'dist'
 ```
 
-### Next.js (Static Export)
-* Ensure `next.config.js` contains `output: 'export'`
+### Next.js (Static Export on GitHub, or Full Build on Vercel)
 ```yaml
+# Option A: Built on Vercel Cloud (zero GitHub Actions minutes consumed)
+with:
+  build_location: 'vercel'
+  enable_vercel: true
+  vercel_project_id: ${{ vars.VERCEL_PROJECT_ID }}
+  vercel_org_id: ${{ vars.VERCEL_ORG_ID }}
+
+# Option B: Built on GitHub Actions as Static Export
 with:
   package_manager: 'auto'
   build_command: 'npm run build'
-  dist_dir: 'out' # or 'auto'
+  dist_dir: 'out'
 ```
 
 ### Nuxt (Static / SSG)

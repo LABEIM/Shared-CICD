@@ -1,0 +1,43 @@
+# Example: Project delegating builds to Cloudflare Pages Build Runner via Deploy Hook
+# Place this in your project repository at: .github/workflows/ci-cd.yml
+
+name: CI/CD Pipeline (Remote Cloudflare Build)
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: write
+  deployments: write
+
+jobs:
+  deploy:
+    # Replace 'my-org/shared-ci-cd' with your actual shared repository name
+    uses: my-org/shared-ci-cd/.github/workflows/deploy-app.yml@v1
+    with:
+      # Build Strategy: Trigger remote Cloudflare Pages build runner via Deploy Hook
+      # Skips GitHub Actions build job to save private repository runner minutes
+      build_location: 'cloudflare'
+
+      # Target Platforms
+      enable_cloudflare: true
+      cloudflare_project_name: 'my-cf-remote-app'
+      enable_vercel: false
+
+      # Audits & Feedback
+      enable_pr_comment: true
+      enable_lighthouse: true
+      lighthouse_routes: |
+        /
+        /about
+
+    secrets: inherit

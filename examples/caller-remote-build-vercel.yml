@@ -1,0 +1,45 @@
+# Example: Private Project saving GitHub Actions minutes by offloading builds to Vercel
+# Place this in your project repository at: .github/workflows/ci-cd.yml
+
+name: CI/CD Pipeline (Remote Vercel Build)
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: write
+  deployments: write
+
+jobs:
+  deploy:
+    # Replace 'my-org/shared-ci-cd' with your actual shared repository name
+    uses: my-org/shared-ci-cd/.github/workflows/deploy-app.yml@v1
+    with:
+      # Build Strategy: Delegate compilation to Vercel Cloud Build infrastructure.
+      # Bypasses local 'validate-and-build' job on GitHub Actions runner (saves 100% of GitHub build minutes!)
+      build_location: 'vercel'
+
+      # Target Platforms
+      enable_vercel: true
+      vercel_project_id: ${{ vars.VERCEL_PROJECT_ID }}
+      vercel_org_id: ${{ vars.VERCEL_ORG_ID }}
+      enable_cloudflare: false
+
+      # Audits & Feedback (runs on live preview URL returned by Vercel)
+      enable_pr_comment: true
+      enable_lighthouse: true
+      lighthouse_routes: |
+        /
+        /dashboard
+        /pricing
+
+    secrets: inherit

@@ -10,7 +10,14 @@ on:
         type: string
         default: '.'
 
-      # Runtime & Build Settings
+      # Build Location & Strategy
+      build_location:
+        description: 'Where to build the application ("github", "vercel", "cloudflare", "none")'
+        required: false
+        type: string
+        default: 'github'
+
+      # Runtime & Build Settings (Used when build_location is "github")
       node_version:
         description: 'Node.js version (or "auto" for .nvmrc / .node-version)'
         required: false
@@ -61,7 +68,7 @@ on:
 
       # Vercel Target
       enable_vercel:
-        description: 'Enable Vercel deployment (Backup or Parallel)'
+        description: 'Enable Vercel deployment (Backup or Parallel or Remote Builder)'
         required: false
         type: boolean
         default: false
@@ -105,16 +112,20 @@ on:
       CLOUDFLARE_ACCOUNT_ID:
         description: 'Cloudflare Account ID'
         required: false
+      CLOUDFLARE_DEPLOY_HOOK_URL:
+        description: 'Cloudflare Pages Deploy Hook URL for remote Cloudflare builds'
+        required: false
       VERCEL_TOKEN:
         description: 'Vercel Authentication Token'
         required: false
 
 jobs:
   # ──────────────────────────────────────────────────────────────────────
-  # Stage 1: Build & Validate
+  # Stage 1: Build & Validate (GitHub Runner - Skipped if remote building)
   # ──────────────────────────────────────────────────────────────────────
   validate-and-build:
     name: Build & Validate
+    if: inputs.build_location == 'github' || inputs.build_location == '' || inputs.build_location == 'auto'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     outputs:
@@ -386,8 +397,11 @@ jobs:
   # ──────────────────────────────────────────────────────────────────────
   deploy-cloudflare:
     name: Deploy to Cloudflare Pages
-    needs: validate-and-build
-    if: inputs.enable_cloudflare == true
+    needs: [validate-and-build]
+    if: >-
+      inputs.enable_cloudflare == true &&
+      !cancelled() &&
+      (needs.validate-and-build.result == 'success' || needs.validate-and-build.result == 'skipped')
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -399,92 +413,117 @@ jobs:
     outputs:
       deploy_url: ${{ steps.deploy_cf.outputs.deploy_url }}
     steps:
-      - name: Download dist build artifact
+      - name: Checkout repository (if skipping GitHub build)
+        if: inputs.build_location != 'github' && inputs.build_location != '' && inputs.build_location != 'auto'
+        uses: actions/checkout@v4
+
+      - name: Download dist build artifact (if built on GitHub)
+        if: inputs.build_location == 'github' || inputs.build_location == '' || inputs.build_location == 'auto'
         uses: actions/download-artifact@v4
         with:
           name: dist-static-build
           path: _dist_assets/
 
-      - name: Deploy to Cloudflare Pages via Wrangler
+      - name: Deploy to Cloudflare Pages
         id: deploy_cf
+        shell: bash
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          DEPLOY_HOOK: ${{ secrets.CLOUDFLARE_DEPLOY_HOOK_URL }}
           PROJECT_NAME: ${{ inputs.cloudflare_project_name }}
-          DIST_DIR: _dist_assets
+          DIST_DIR: ${{ (inputs.build_location == 'github' || inputs.build_location == '' || inputs.build_location == 'auto') && '_dist_assets' || (inputs.working_directory == '.' && inputs.dist_dir || format('{0}/{1}', inputs.working_directory, inputs.dist_dir)) }}
           PROD_BRANCH: ${{ inputs.production_branch }}
+          BUILD_LOCATION: ${{ inputs.build_location }}
           RAW_HEAD_REF: ${{ github.head_ref }}
           RAW_REF_NAME: ${{ github.ref_name }}
         run: |
-          if [ -z "$CLOUDFLARE_API_TOKEN" ] || [ -z "$CLOUDFLARE_ACCOUNT_ID" ]; then
-            echo "::error::CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID secrets must be provided."
-            exit 1
-          fi
-
           BRANCH_NAME="${RAW_HEAD_REF:-$RAW_REF_NAME}"
-
-          # Auto-create Pages project shell if it does not exist yet
-          npx --yes wrangler pages project create "$PROJECT_NAME" --production-branch="$PROD_BRANCH" > /dev/null 2>&1 || true
-
-          # Deploy with retry logic (3 attempts, exponential backoff)
-          MAX_RETRIES=3
-          RETRY_DELAY=10
-          for ATTEMPT in $(seq 1 $MAX_RETRIES); do
-            echo "::group::Cloudflare deployment attempt $ATTEMPT/$MAX_RETRIES"
-            if npx --yes wrangler pages deploy "$DIST_DIR" \
-              --project-name="$PROJECT_NAME" \
-              --branch="$BRANCH_NAME" \
-              --commit-dirty=true 2>&1 | tee cf_deploy.log; then
-              echo "::endgroup::"
-              echo "Deployment succeeded on attempt $ATTEMPT"
-              break
-            fi
-            echo "::endgroup::"
-            if [ "$ATTEMPT" -lt "$MAX_RETRIES" ]; then
-              echo "Attempt $ATTEMPT failed, retrying in ${RETRY_DELAY}s..."
-              sleep $RETRY_DELAY
-              RETRY_DELAY=$((RETRY_DELAY * 2))
-            else
-              echo "::error::All $MAX_RETRIES deployment attempts to Cloudflare Pages failed."
-              exit 1
-            fi
-          done
-
           CLEAN_BRANCH=$(echo "$BRANCH_NAME" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g; s/^-//; s/-$//')
           IS_PROD="false"
           if [ "$BRANCH_NAME" = "$PROD_BRANCH" ] || [ "$CLEAN_BRANCH" = "main" ] || [ "$CLEAN_BRANCH" = "master" ]; then
             IS_PROD="true"
           fi
 
-          PROD_URL=$(grep -i "Production URL:" cf_deploy.log | grep -oP 'https://[a-zA-Z0-9.-]+\.pages\.dev' | head -1 | tr -cd 'a-zA-Z0-9.:/_-' || true)
-          BRANCH_PREVIEW_URL=$(grep -i "Branch Preview URL:" cf_deploy.log | grep -oP 'https://[a-zA-Z0-9.-]+\.pages\.dev' | head -1 | tr -cd 'a-zA-Z0-9.:/_-' || true)
-
-          DEPLOY_URL=""
-          if [ "$IS_PROD" = "true" ]; then
-            if [ -n "$PROD_URL" ]; then
-              DEPLOY_URL="$PROD_URL"
+          if [ -n "$DEPLOY_HOOK" ]; then
+            echo "Triggering remote Cloudflare Pages build via Deploy Hook..."
+            HOOK_RESP=$(curl -s -X POST -w "\n%{http_code}" "$DEPLOY_HOOK")
+            HTTP_CODE=$(echo "$HOOK_RESP" | tail -n1)
+            if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 300 ]; then
+              echo "Cloudflare Deploy Hook triggered successfully (HTTP $HTTP_CODE)."
             else
-              DEPLOY_URL="https://${PROJECT_NAME}.pages.dev"
+              echo "::error::Failed to trigger Cloudflare Deploy Hook (HTTP $HTTP_CODE): $HOOK_RESP"
+              exit 1
             fi
-          else
-            if [ -n "$BRANCH_PREVIEW_URL" ]; then
-              DEPLOY_URL="$BRANCH_PREVIEW_URL"
-            fi
-          fi
 
-          if [ -z "$DEPLOY_URL" ]; then
-            DEPLOY_URL=$(sed 's/\x1B\[[0-9;]*[a-zA-Z]//g' cf_deploy.log \
-              | grep -oP 'https://[a-zA-Z0-9.-]+\.(pages\.dev|workers\.dev)' \
-              | grep -iv 'dash\.cloudflare\|api\.cloudflare' \
-              | head -1 \
-              | tr -cd 'a-zA-Z0-9.:/_-' || true)
-          fi
-
-          if [ -z "$DEPLOY_URL" ] || ! echo "$DEPLOY_URL" | grep -q '^https://'; then
             if [ "$IS_PROD" = "true" ]; then
               DEPLOY_URL="https://${PROJECT_NAME}.pages.dev"
             else
               DEPLOY_URL="https://${CLEAN_BRANCH}.${PROJECT_NAME}.pages.dev"
+            fi
+          else
+            if [ -z "$CLOUDFLARE_API_TOKEN" ] || [ -z "$CLOUDFLARE_ACCOUNT_ID" ]; then
+              echo "::error::CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID secrets must be provided."
+              exit 1
+            fi
+
+            # Auto-create Pages project shell if it does not exist yet
+            npx --yes wrangler pages project create "$PROJECT_NAME" --production-branch="$PROD_BRANCH" > /dev/null 2>&1 || true
+
+            # Deploy with retry logic (3 attempts, exponential backoff)
+            MAX_RETRIES=3
+            RETRY_DELAY=10
+            for ATTEMPT in $(seq 1 $MAX_RETRIES); do
+              echo "::group::Cloudflare deployment attempt $ATTEMPT/$MAX_RETRIES"
+              if npx --yes wrangler pages deploy "$DIST_DIR" \
+                --project-name="$PROJECT_NAME" \
+                --branch="$BRANCH_NAME" \
+                --commit-dirty=true 2>&1 | tee cf_deploy.log; then
+                echo "::endgroup::"
+                echo "Deployment succeeded on attempt $ATTEMPT"
+                break
+              fi
+              echo "::endgroup::"
+              if [ "$ATTEMPT" -lt "$MAX_RETRIES" ]; then
+                echo "Attempt $ATTEMPT failed, retrying in ${RETRY_DELAY}s..."
+                sleep $RETRY_DELAY
+                RETRY_DELAY=$((RETRY_DELAY * 2))
+              else
+                echo "::error::All $MAX_RETRIES deployment attempts to Cloudflare Pages failed."
+                exit 1
+              fi
+            done
+
+            PROD_URL=$(grep -i "Production URL:" cf_deploy.log | grep -oP 'https://[a-zA-Z0-9.-]+\.pages\.dev' | head -1 | tr -cd 'a-zA-Z0-9.:/_-' || true)
+            BRANCH_PREVIEW_URL=$(grep -i "Branch Preview URL:" cf_deploy.log | grep -oP 'https://[a-zA-Z0-9.-]+\.pages\.dev' | head -1 | tr -cd 'a-zA-Z0-9.:/_-' || true)
+
+            DEPLOY_URL=""
+            if [ "$IS_PROD" = "true" ]; then
+              if [ -n "$PROD_URL" ]; then
+                DEPLOY_URL="$PROD_URL"
+              else
+                DEPLOY_URL="https://${PROJECT_NAME}.pages.dev"
+              fi
+            else
+              if [ -n "$BRANCH_PREVIEW_URL" ]; then
+                DEPLOY_URL="$BRANCH_PREVIEW_URL"
+              fi
+            fi
+
+            if [ -z "$DEPLOY_URL" ]; then
+              DEPLOY_URL=$(sed 's/\x1B\[[0-9;]*[a-zA-Z]//g' cf_deploy.log \
+                | grep -oP 'https://[a-zA-Z0-9.-]+\.(pages\.dev|workers\.dev)' \
+                | grep -iv 'dash\.cloudflare\|api\.cloudflare' \
+                | head -1 \
+                | tr -cd 'a-zA-Z0-9.:/_-' || true)
+            fi
+
+            if [ -z "$DEPLOY_URL" ] || ! echo "$DEPLOY_URL" | grep -q '^https://'; then
+              if [ "$IS_PROD" = "true" ]; then
+                DEPLOY_URL="https://${PROJECT_NAME}.pages.dev"
+              else
+                DEPLOY_URL="https://${CLEAN_BRANCH}.${PROJECT_NAME}.pages.dev"
+              fi
             fi
           fi
 
@@ -494,7 +533,12 @@ jobs:
       - name: Deployment summary
         env:
           TARGET_BRANCH: ${{ github.head_ref || github.ref_name }}
+          DEPLOY_HOOK: ${{ secrets.CLOUDFLARE_DEPLOY_HOOK_URL }}
         run: |
+          BUILD_TYPE="Direct Upload (Wrangler)"
+          if [ -n "$DEPLOY_HOOK" ]; then
+            BUILD_TYPE="Remote (Cloudflare Pages Build Runner)"
+          fi
           {
             echo "### Cloudflare Pages Deployment"
             echo ""
@@ -502,16 +546,20 @@ jobs:
             echo "| :--- | :--- |"
             echo "| URL | ${{ steps.deploy_cf.outputs.deploy_url }} |"
             echo "| Branch | \`${TARGET_BRANCH}\` |"
+            echo "| Build Mode | ${BUILD_TYPE} |"
             echo "| Status | Deployed |"
           } >> "$GITHUB_STEP_SUMMARY"
 
   # ──────────────────────────────────────────────────────────────────────
-  # Stage 2b: Deploy to Vercel (Parallel / Optional)
+  # Stage 2b: Deploy to Vercel (Parallel / Optional / Remote Builder)
   # ──────────────────────────────────────────────────────────────────────
   deploy-vercel:
     name: Deploy to Vercel
-    needs: validate-and-build
-    if: inputs.enable_vercel == true
+    needs: [validate-and-build]
+    if: >-
+      inputs.enable_vercel == true &&
+      !cancelled() &&
+      (needs.validate-and-build.result == 'success' || needs.validate-and-build.result == 'skipped')
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -527,13 +575,20 @@ jobs:
       VERCEL_ORG_ID: ${{ inputs.vercel_org_id }}
       VERCEL_PROJECT_ID: ${{ inputs.vercel_project_id }}
     steps:
-      - name: Download dist build artifact
+      - name: Checkout repository (for remote build / standalone deploy)
+        if: inputs.build_location == 'vercel' || inputs.build_location == 'none' || inputs.build_location == 'skip'
+        uses: actions/checkout@v4
+
+      - name: Download dist build artifact (for prebuilt GitHub build)
+        if: inputs.build_location == 'github' || inputs.build_location == '' || inputs.build_location == 'auto'
         uses: actions/download-artifact@v4
         with:
           name: dist-static-build
           path: _dist_assets/
 
       - name: Pull Vercel project settings
+        shell: bash
+        working-directory: ${{ inputs.working_directory }}
         run: |
           if [ -z "${{ secrets.VERCEL_TOKEN }}" ] || [ -z "$VERCEL_PROJECT_ID" ] || [ -z "$VERCEL_ORG_ID" ]; then
             echo "::error::VERCEL_TOKEN, vercel_project_id, and vercel_org_id are required to deploy to Vercel."
@@ -546,7 +601,10 @@ jobs:
           fi
           npx --yes vercel@latest pull --yes --environment="$ENV_ARG" --token=${{ secrets.VERCEL_TOKEN }}
 
-      - name: Build Vercel Output API structure
+      - name: Build Vercel Output API structure (Prebuilt only)
+        if: inputs.build_location == 'github' || inputs.build_location == '' || inputs.build_location == 'auto'
+        shell: bash
+        working-directory: ${{ inputs.working_directory }}
         run: |
           mkdir -p .vercel/output/static
           cp -r _dist_assets/. .vercel/output/static/
@@ -556,10 +614,22 @@ jobs:
 
       - name: Deploy to Vercel (with retry)
         id: deploy
+        shell: bash
+        working-directory: ${{ inputs.working_directory }}
+        env:
+          BUILD_LOCATION: ${{ inputs.build_location }}
         run: |
           PROD_FLAG=""
           if [ "${{ github.event_name }}" != "pull_request" ]; then
             PROD_FLAG="--prod"
+          fi
+
+          BUILD_FLAG="--prebuilt"
+          if [ "$BUILD_LOCATION" = "vercel" ]; then
+            BUILD_FLAG=""
+            echo "Executing remote build on Vercel infrastructure (skipping local GitHub build)..."
+          else
+            echo "Deploying prebuilt static bundle to Vercel..."
           fi
 
           MAX_RETRIES=3
@@ -567,7 +637,7 @@ jobs:
           DEPLOY_EXIT=1
           for ATTEMPT in $(seq 1 $MAX_RETRIES); do
             echo "::group::Vercel deployment attempt $ATTEMPT/$MAX_RETRIES"
-            npx --yes vercel@latest deploy --prebuilt $PROD_FLAG --yes --token=${{ secrets.VERCEL_TOKEN }} 2>&1 | tee vercel_deploy.log
+            npx --yes vercel@latest deploy $BUILD_FLAG $PROD_FLAG --yes --token=${{ secrets.VERCEL_TOKEN }} 2>&1 | tee vercel_deploy.log
             DEPLOY_EXIT=${PIPESTATUS[0]}
             echo "::endgroup::"
             if [ "$DEPLOY_EXIT" -eq 0 ]; then
@@ -586,6 +656,8 @@ jobs:
 
       - name: Resolve Vercel deployment URL via REST API
         id: resolve_url
+        shell: bash
+        working-directory: ${{ inputs.working_directory }}
         env:
           COMMIT_SHA: ${{ github.sha }}
         run: |
@@ -628,9 +700,16 @@ jobs:
           echo "deploy_url=$DEPLOY_URL" >> "$GITHUB_OUTPUT"
 
       - name: Deployment summary
+        shell: bash
+        working-directory: ${{ inputs.working_directory }}
         env:
           TARGET_BRANCH: ${{ github.head_ref || github.ref_name }}
+          BUILD_LOCATION: ${{ inputs.build_location }}
         run: |
+          BUILD_TYPE="Prebuilt (GitHub Actions)"
+          if [ "$BUILD_LOCATION" = "vercel" ]; then
+            BUILD_TYPE="Remote (Vercel Cloud Build)"
+          fi
           {
             echo "### Vercel Deployment"
             echo ""
@@ -638,6 +717,7 @@ jobs:
             echo "| :--- | :--- |"
             echo "| URL | ${{ steps.resolve_url.outputs.deploy_url }} |"
             echo "| Branch | \`${TARGET_BRANCH}\` |"
+            echo "| Build Location | ${BUILD_TYPE} |"
             echo "| Status | Deployed |"
           } >> "$GITHUB_STEP_SUMMARY"
 
@@ -650,6 +730,7 @@ jobs:
     if: >-
       inputs.enable_pr_comment == true &&
       github.event_name == 'pull_request' &&
+      !cancelled() &&
       (needs.deploy-cloudflare.result == 'success' || needs.deploy-vercel.result == 'success')
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -712,8 +793,8 @@ jobs:
     if: >-
       always() &&
       inputs.enable_lighthouse == true &&
-      needs.validate-and-build.result == 'success' &&
-      (needs.deploy-cloudflare.result == 'success' || needs.deploy-vercel.result == 'success' || (inputs.enable_cloudflare == false && inputs.enable_vercel == false))
+      !cancelled() &&
+      (needs.deploy-cloudflare.result == 'success' || needs.deploy-vercel.result == 'success' || (inputs.enable_cloudflare == false && inputs.enable_vercel == false && needs.validate-and-build.result == 'success'))
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -723,7 +804,9 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Download dist build artifact
+      - name: Download dist build artifact (if available)
+        if: inputs.build_location == 'github' || inputs.build_location == '' || inputs.build_location == 'auto'
+        continue-on-error: true
         uses: actions/download-artifact@v4
         with:
           name: dist-static-build

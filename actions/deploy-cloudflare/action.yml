@@ -1,5 +1,5 @@
 name: 'Deploy to Cloudflare Pages'
-description: 'Deploys static assets to Cloudflare Pages via Wrangler with exponential retry and deterministic URL resolution'
+description: 'Deploys static assets to Cloudflare Pages via Wrangler with exponential retry and deterministic URL resolution, or triggers remote Cloudflare Pages builds via Deploy Hooks'
 
 inputs:
   working_directory:
@@ -18,11 +18,17 @@ inputs:
     required: false
     default: 'main'
   api_token:
-    description: 'Cloudflare API Token with Pages edit permissions'
-    required: true
+    description: 'Cloudflare API Token with Pages edit permissions (required for Wrangler direct deploy)'
+    required: false
+    default: ''
   account_id:
-    description: 'Cloudflare Account ID'
-    required: true
+    description: 'Cloudflare Account ID (required for Wrangler direct deploy)'
+    required: false
+    default: ''
+  deploy_hook_url:
+    description: 'Optional Cloudflare Pages Deploy Hook URL to trigger remote Cloudflare build'
+    required: false
+    default: ''
   max_retries:
     description: 'Maximum number of deployment retry attempts'
     required: false
@@ -43,13 +49,14 @@ outputs:
 runs:
   using: 'composite'
   steps:
-    - name: Deploy to Cloudflare Pages via Wrangler
+    - name: Deploy to Cloudflare Pages
       id: deploy
       shell: bash
       working-directory: ${{ inputs.working_directory }}
       env:
         CLOUDFLARE_API_TOKEN: ${{ inputs.api_token }}
         CLOUDFLARE_ACCOUNT_ID: ${{ inputs.account_id }}
+        DEPLOY_HOOK: ${{ inputs.deploy_hook_url }}
         PROJECT_NAME: ${{ inputs.project_name }}
         DIST_DIR: ${{ inputs.dist_dir }}
         PROD_BRANCH: ${{ inputs.production_branch }}
@@ -58,81 +65,99 @@ runs:
         RAW_HEAD_REF: ${{ github.head_ref }}
         RAW_REF_NAME: ${{ github.ref_name }}
       run: |
-        if [ -z "$CLOUDFLARE_API_TOKEN" ] || [ -z "$CLOUDFLARE_ACCOUNT_ID" ]; then
-          echo "::error::CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID must be provided."
-          exit 1
-        fi
-
         BRANCH_NAME="${RAW_HEAD_REF:-$RAW_REF_NAME}"
-
-        echo "Target Cloudflare Project: $PROJECT_NAME"
-        echo "Target Branch: $BRANCH_NAME"
-        echo "Source Assets Directory: $DIST_DIR"
-
-        # Auto-create Pages project shell if it does not exist yet
-        npx --yes wrangler pages project create "$PROJECT_NAME" --production-branch="$PROD_BRANCH" > /dev/null 2>&1 || true
-
-        # Deploy with retry logic (exponential backoff)
-        RETRY_DELAY=$INITIAL_RETRY_DELAY
-        for ATTEMPT in $(seq 1 $MAX_RETRIES); do
-          echo "::group::Cloudflare Pages deployment attempt $ATTEMPT/$MAX_RETRIES"
-          if npx --yes wrangler pages deploy "$DIST_DIR" \
-            --project-name="$PROJECT_NAME" \
-            --branch="$BRANCH_NAME" \
-            --commit-dirty=true 2>&1 | tee cf_deploy.log; then
-            echo "::endgroup::"
-            echo "Deployment succeeded on attempt $ATTEMPT"
-            break
-          fi
-          echo "::endgroup::"
-          if [ "$ATTEMPT" -lt "$MAX_RETRIES" ]; then
-            echo "Attempt $ATTEMPT failed, retrying in ${RETRY_DELAY}s..."
-            sleep $RETRY_DELAY
-            RETRY_DELAY=$((RETRY_DELAY * 2))
-          else
-            echo "::error::All $MAX_RETRIES deployment attempts to Cloudflare Pages failed."
-            exit 1
-          fi
-        done
-
         CLEAN_BRANCH=$(echo "$BRANCH_NAME" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g; s/^-//; s/-$//')
         IS_PROD="false"
         if [ "$BRANCH_NAME" = "$PROD_BRANCH" ] || [ "$CLEAN_BRANCH" = "main" ] || [ "$CLEAN_BRANCH" = "master" ]; then
           IS_PROD="true"
         fi
 
-        # Parse wrangler deploy output for canonical Production URL or Branch Preview URL
-        PROD_URL=$(grep -i "Production URL:" cf_deploy.log | grep -oP 'https://[a-zA-Z0-9.-]+\.pages\.dev' | head -1 | tr -cd 'a-zA-Z0-9.:/_-' || true)
-        BRANCH_PREVIEW_URL=$(grep -i "Branch Preview URL:" cf_deploy.log | grep -oP 'https://[a-zA-Z0-9.-]+\.pages\.dev' | head -1 | tr -cd 'a-zA-Z0-9.:/_-' || true)
+        echo "Target Cloudflare Project: $PROJECT_NAME"
+        echo "Target Branch: $BRANCH_NAME"
 
-        DEPLOY_URL=""
-        if [ "$IS_PROD" = "true" ]; then
-          if [ -n "$PROD_URL" ]; then
-            DEPLOY_URL="$PROD_URL"
+        if [ -n "$DEPLOY_HOOK" ]; then
+          echo "Triggering remote Cloudflare Pages build via Deploy Hook..."
+          HOOK_RESP=$(curl -s -X POST -w "\n%{http_code}" "$DEPLOY_HOOK")
+          HTTP_CODE=$(echo "$HOOK_RESP" | tail -n1)
+          if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 300 ]; then
+            echo "Cloudflare Deploy Hook triggered successfully (HTTP $HTTP_CODE)."
           else
-            DEPLOY_URL="https://${PROJECT_NAME}.pages.dev"
+            echo "::error::Failed to trigger Cloudflare Deploy Hook (HTTP $HTTP_CODE): $HOOK_RESP"
+            exit 1
           fi
-        else
-          if [ -n "$BRANCH_PREVIEW_URL" ]; then
-            DEPLOY_URL="$BRANCH_PREVIEW_URL"
-          fi
-        fi
 
-        # Fallback 1: look for general pages.dev/workers.dev URL in logs
-        if [ -z "$DEPLOY_URL" ]; then
-          DEPLOY_URL=$(sed 's/\x1B\[[0-9;]*[a-zA-Z]//g' cf_deploy.log \
-            | grep -oP 'https://[a-zA-Z0-9.-]+\.(pages\.dev|workers\.dev)' \
-            | grep -iv 'dash\.cloudflare\|api\.cloudflare' \
-            | head -1 \
-            | tr -cd 'a-zA-Z0-9.:/_-' || true)
-        fi
-
-        # Fallback 2: construct standard Cloudflare Pages URL pattern
-        if [ -z "$DEPLOY_URL" ] || ! echo "$DEPLOY_URL" | grep -q '^https://'; then
           if [ "$IS_PROD" = "true" ]; then
             DEPLOY_URL="https://${PROJECT_NAME}.pages.dev"
           else
             DEPLOY_URL="https://${CLEAN_BRANCH}.${PROJECT_NAME}.pages.dev"
+          fi
+        else
+          if [ -z "$CLOUDFLARE_API_TOKEN" ] || [ -z "$CLOUDFLARE_ACCOUNT_ID" ]; then
+            echo "::error::Either deploy_hook_url OR both api_token and account_id must be provided for Cloudflare Pages deployment."
+            exit 1
+          fi
+
+          echo "Source Assets Directory: $DIST_DIR"
+
+          # Auto-create Pages project shell if it does not exist yet
+          npx --yes wrangler pages project create "$PROJECT_NAME" --production-branch="$PROD_BRANCH" > /dev/null 2>&1 || true
+
+          # Deploy with retry logic (exponential backoff)
+          RETRY_DELAY=$INITIAL_RETRY_DELAY
+          for ATTEMPT in $(seq 1 $MAX_RETRIES); do
+            echo "::group::Cloudflare Pages deployment attempt $ATTEMPT/$MAX_RETRIES"
+            if npx --yes wrangler pages deploy "$DIST_DIR" \
+              --project-name="$PROJECT_NAME" \
+              --branch="$BRANCH_NAME" \
+              --commit-dirty=true 2>&1 | tee cf_deploy.log; then
+              echo "::endgroup::"
+              echo "Deployment succeeded on attempt $ATTEMPT"
+              break
+            fi
+            echo "::endgroup::"
+            if [ "$ATTEMPT" -lt "$MAX_RETRIES" ]; then
+              echo "Attempt $ATTEMPT failed, retrying in ${RETRY_DELAY}s..."
+              sleep $RETRY_DELAY
+              RETRY_DELAY=$((RETRY_DELAY * 2))
+            else
+              echo "::error::All $MAX_RETRIES deployment attempts to Cloudflare Pages failed."
+              exit 1
+            fi
+          done
+
+          # Parse wrangler deploy output for canonical Production URL or Branch Preview URL
+          PROD_URL=$(grep -i "Production URL:" cf_deploy.log | grep -oP 'https://[a-zA-Z0-9.-]+\.pages\.dev' | head -1 | tr -cd 'a-zA-Z0-9.:/_-' || true)
+          BRANCH_PREVIEW_URL=$(grep -i "Branch Preview URL:" cf_deploy.log | grep -oP 'https://[a-zA-Z0-9.-]+\.pages\.dev' | head -1 | tr -cd 'a-zA-Z0-9.:/_-' || true)
+
+          DEPLOY_URL=""
+          if [ "$IS_PROD" = "true" ]; then
+            if [ -n "$PROD_URL" ]; then
+              DEPLOY_URL="$PROD_URL"
+            else
+              DEPLOY_URL="https://${PROJECT_NAME}.pages.dev"
+            fi
+          else
+            if [ -n "$BRANCH_PREVIEW_URL" ]; then
+              DEPLOY_URL="$BRANCH_PREVIEW_URL"
+            fi
+          fi
+
+          # Fallback 1: look for general pages.dev/workers.dev URL in logs
+          if [ -z "$DEPLOY_URL" ]; then
+            DEPLOY_URL=$(sed 's/\x1B\[[0-9;]*[a-zA-Z]//g' cf_deploy.log \
+              | grep -oP 'https://[a-zA-Z0-9.-]+\.(pages\.dev|workers\.dev)' \
+              | grep -iv 'dash\.cloudflare\|api\.cloudflare' \
+              | head -1 \
+              | tr -cd 'a-zA-Z0-9.:/_-' || true)
+          fi
+
+          # Fallback 2: construct standard Cloudflare Pages URL pattern
+          if [ -z "$DEPLOY_URL" ] || ! echo "$DEPLOY_URL" | grep -q '^https://'; then
+            if [ "$IS_PROD" = "true" ]; then
+              DEPLOY_URL="https://${PROJECT_NAME}.pages.dev"
+            else
+              DEPLOY_URL="https://${CLEAN_BRANCH}.${PROJECT_NAME}.pages.dev"
+            fi
           fi
         fi
 
@@ -147,7 +172,12 @@ runs:
       working-directory: ${{ inputs.working_directory }}
       env:
         TARGET_BRANCH: ${{ github.head_ref || github.ref_name }}
+        DEPLOY_HOOK: ${{ inputs.deploy_hook_url }}
       run: |
+        BUILD_TYPE="Direct Upload (Wrangler)"
+        if [ -n "$DEPLOY_HOOK" ]; then
+          BUILD_TYPE="Remote (Cloudflare Pages Build Runner)"
+        fi
         {
           echo "### Cloudflare Pages Deployment"
           echo ""
@@ -155,6 +185,7 @@ runs:
           echo "| :--- | :--- |"
           echo "| URL | ${{ steps.deploy.outputs.deploy_url }} |"
           echo "| Branch | \`${TARGET_BRANCH}\` |"
+          echo "| Build Mode | ${BUILD_TYPE} |"
           echo "| Mode | ${{ steps.deploy.outputs.is_production == 'true' && 'Production' || 'Branch Preview' }} |"
           echo "| Status | Deployed |"
         } >> "$GITHUB_STEP_SUMMARY"

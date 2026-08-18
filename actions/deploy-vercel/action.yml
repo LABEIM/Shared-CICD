@@ -1,5 +1,5 @@
-name: 'Deploy to Vercel (Prebuilt Output API v3)'
-description: 'Deploys pre-built static site to Vercel via Build Output API v3 with retries, fast npx execution, and commit-filtered REST API URL resolution'
+name: 'Deploy to Vercel (Prebuilt Output API v3 or Remote Cloud Build)'
+description: 'Deploys static site to Vercel via Build Output API v3 or delegates compilation to Vercel Remote Build infrastructure with retries and REST API URL resolution'
 
 inputs:
   working_directory:
@@ -16,9 +16,13 @@ inputs:
     description: 'Vercel Authentication Token'
     required: true
   dist_dir:
-    description: 'Directory containing built static files'
+    description: 'Directory containing built static files (used when remote_build is false)'
     required: false
     default: 'dist'
+  remote_build:
+    description: 'Whether to build remotely on Vercel infrastructure instead of deploying prebuilt output'
+    required: false
+    default: 'false'
   max_retries:
     description: 'Maximum retry attempts'
     required: false
@@ -62,6 +66,7 @@ runs:
         npx --yes vercel@latest pull --yes --environment="$ENV_ARG" --token="${{ inputs.vercel_token }}"
 
     - name: Build Vercel Output API structure
+      if: inputs.remote_build != 'true'
       shell: bash
       working-directory: ${{ inputs.working_directory }}
       run: |
@@ -85,6 +90,7 @@ runs:
         VERCEL_PROJECT_ID: ${{ inputs.project_id }}
         MAX_RETRIES: ${{ inputs.max_retries }}
         INITIAL_RETRY_DELAY: ${{ inputs.retry_delay }}
+        REMOTE_BUILD: ${{ inputs.remote_build }}
       run: |
         PROD_FLAG=""
         IS_PROD="false"
@@ -94,11 +100,19 @@ runs:
         fi
         echo "is_production=$IS_PROD" >> "$GITHUB_OUTPUT"
 
+        BUILD_FLAG="--prebuilt"
+        if [ "$REMOTE_BUILD" = "true" ]; then
+          BUILD_FLAG=""
+          echo "Executing remote build on Vercel cloud infrastructure..."
+        else
+          echo "Deploying prebuilt static output to Vercel..."
+        fi
+
         RETRY_DELAY=$INITIAL_RETRY_DELAY
         DEPLOY_EXIT=1
         for ATTEMPT in $(seq 1 $MAX_RETRIES); do
           echo "::group::Vercel deployment attempt $ATTEMPT/$MAX_RETRIES"
-          npx --yes vercel@latest deploy --prebuilt $PROD_FLAG --yes --token="${{ inputs.vercel_token }}" 2>&1 | tee vercel_deploy.log
+          npx --yes vercel@latest deploy $BUILD_FLAG $PROD_FLAG --yes --token="${{ inputs.vercel_token }}" 2>&1 | tee vercel_deploy.log
           DEPLOY_EXIT=${PIPESTATUS[0]}
           echo "::endgroup::"
           if [ "$DEPLOY_EXIT" -eq 0 ]; then
@@ -170,7 +184,12 @@ runs:
       working-directory: ${{ inputs.working_directory }}
       env:
         TARGET_BRANCH: ${{ github.head_ref || github.ref_name }}
+        REMOTE_BUILD: ${{ inputs.remote_build }}
       run: |
+        BUILD_TYPE="Prebuilt (GitHub Actions)"
+        if [ "$REMOTE_BUILD" = "true" ]; then
+          BUILD_TYPE="Remote (Vercel Cloud Build)"
+        fi
         {
           echo "### Vercel Deployment"
           echo ""
@@ -178,6 +197,7 @@ runs:
           echo "| :--- | :--- |"
           echo "| URL | ${{ steps.resolve_url.outputs.deploy_url }} |"
           echo "| Branch | \`${TARGET_BRANCH}\` |"
+          echo "| Build Location | ${BUILD_TYPE} |"
           echo "| Mode | ${{ steps.deploy.outputs.is_production == 'true' && 'Production' || 'Preview' }} |"
           echo "| Status | Deployed |"
         } >> "$GITHUB_STEP_SUMMARY"
