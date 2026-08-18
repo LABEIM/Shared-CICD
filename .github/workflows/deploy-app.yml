@@ -194,6 +194,9 @@ jobs:
           retention-days: 3
 
       - name: Build summary
+        env:
+          BRANCH_NAME: ${{ github.ref_name }}
+          COMMIT_SHA: ${{ github.sha }}
         run: |
           TARGET_DIR="${{ inputs.dist_dir }}"
           DIR_SIZE="N/A"
@@ -202,15 +205,17 @@ jobs:
           fi
           HASH="${{ steps.hash.outputs.sha256 }}"
 
-          echo "### Build Summary" >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Metric | Value |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| :--- | :--- |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Build Duration | ${{ steps.build.outputs.duration }} |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Artifact SHA256 | \`${HASH:0:16}...\` |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Artifact Size | ${DIR_SIZE} |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Branch | \`${{ github.ref_name }}\` |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Commit | \`${{ github.sha }}\` |" >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo "### Build Summary"
+            echo ""
+            echo "| Metric | Value |"
+            echo "| :--- | :--- |"
+            echo "| Build Duration | ${{ steps.build.outputs.duration }} |"
+            echo "| Artifact SHA256 | \`${HASH:0:16}...\` |"
+            echo "| Artifact Size | ${DIR_SIZE} |"
+            echo "| Branch | \`${BRANCH_NAME}\` |"
+            echo "| Commit | \`${COMMIT_SHA}\` |"
+          } >> "$GITHUB_STEP_SUMMARY"
 
   # ──────────────────────────────────────────────────────────────────────
   # Stage 2a: Deploy to Cloudflare Pages (Primary / Optional)
@@ -249,14 +254,14 @@ jobs:
           PROJECT_NAME: ${{ inputs.cloudflare_project_name }}
           DIST_DIR: ${{ inputs.dist_dir }}
           PROD_BRANCH: ${{ inputs.production_branch }}
+          RAW_HEAD_REF: ${{ github.head_ref }}
+          RAW_REF_NAME: ${{ github.ref_name }}
         run: |
           if [ -z "$CLOUDFLARE_API_TOKEN" ] || [ -z "$CLOUDFLARE_ACCOUNT_ID" ]; then
             echo "::error::CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID secrets must be provided."
             exit 1
           fi
 
-          RAW_HEAD_REF="${{ github.head_ref }}"
-          RAW_REF_NAME="${{ github.ref_name }}"
           BRANCH_NAME="${RAW_HEAD_REF:-$RAW_REF_NAME}"
 
           # Auto-create Pages project shell if it does not exist yet
@@ -331,14 +336,18 @@ jobs:
           retention-days: 1
 
       - name: Deployment summary
+        env:
+          TARGET_BRANCH: ${{ github.head_ref || github.ref_name }}
         run: |
-          echo "### Cloudflare Pages Deployment" >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Detail | Value |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| :--- | :--- |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| URL | ${{ steps.deploy_cf.outputs.deploy_url }} |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Branch | \`${{ github.head_ref || github.ref_name }}\` |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Status | Deployed |" >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo "### Cloudflare Pages Deployment"
+            echo ""
+            echo "| Detail | Value |"
+            echo "| :--- | :--- |"
+            echo "| URL | ${{ steps.deploy_cf.outputs.deploy_url }} |"
+            echo "| Branch | \`${TARGET_BRANCH}\` |"
+            echo "| Status | Deployed |"
+          } >> "$GITHUB_STEP_SUMMARY"
 
   # ──────────────────────────────────────────────────────────────────────
   # Stage 2b: Deploy to Vercel (Parallel / Optional)
@@ -462,14 +471,18 @@ jobs:
           retention-days: 1
 
       - name: Deployment summary
+        env:
+          TARGET_BRANCH: ${{ github.head_ref || github.ref_name }}
         run: |
-          echo "### Vercel Deployment" >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Detail | Value |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| :--- | :--- |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| URL | ${{ steps.resolve_url.outputs.deploy_url }} |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Branch | \`${{ github.head_ref || github.ref_name }}\` |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Status | Deployed |" >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo "### Vercel Deployment"
+            echo ""
+            echo "| Detail | Value |"
+            echo "| :--- | :--- |"
+            echo "| URL | ${{ steps.resolve_url.outputs.deploy_url }} |"
+            echo "| Branch | \`${TARGET_BRANCH}\` |"
+            echo "| Status | Deployed |"
+          } >> "$GITHUB_STEP_SUMMARY"
 
   # ──────────────────────────────────────────────────────────────────────
   # Stage 3: Post PR Preview Comment (Optional)
@@ -505,6 +518,7 @@ jobs:
         env:
           CF_URL: ${{ needs.deploy-cloudflare.outputs.deploy_url }}
           VERCEL_URL: ${{ needs.deploy-vercel.outputs.deploy_url }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
           CF_CLEAN=$(echo "$CF_URL" | tr -cd 'a-zA-Z0-9.:/_-')
           if [ -z "$CF_CLEAN" ] && [ -f cf_deploy_url.txt ]; then
@@ -530,7 +544,7 @@ jobs:
             fi
             echo ""
             echo "---"
-            echo "*Commit: \`${{ github.event.pull_request.head.sha || github.sha }}\` · Workflow: [#${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})*"
+            echo "*Commit: \`${HEAD_SHA}\` · Workflow: [#${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})*"
             echo "COMMENT_EOF"
           } >> "$GITHUB_OUTPUT"
 
@@ -620,11 +634,11 @@ jobs:
           BASE_URL: ${{ steps.target_url.outputs.url }}
           ROUTES: ${{ inputs.lighthouse_routes }}
         run: |
-          BASE=$(echo "$BASE_URL" | sed 's|/$||')
+          BASE="${BASE_URL%/}"
           {
             echo "urls<<EOF_URLS"
             for ROUTE in $ROUTES; do
-              CLEAN_ROUTE=$(echo "$ROUTE" | sed 's|^/||')
+              CLEAN_ROUTE="${ROUTE#/}"
               if [ -z "$CLEAN_ROUTE" ]; then
                 echo "${BASE}/"
               else
@@ -656,16 +670,12 @@ jobs:
         id: parse_lh
         env:
           TARGET_URL: ${{ steps.target_url.outputs.url }}
-          LIVE_MANIFEST: ${{ steps.lighthouse_live.outputs.manifest }}
-          STATIC_MANIFEST: ${{ steps.lighthouse_static.outputs.manifest }}
           LIVE_LINKS: ${{ steps.lighthouse_live.outputs.links }}
           STATIC_LINKS: ${{ steps.lighthouse_static.outputs.links }}
         run: |
           node -e '
             const fs = require("fs");
             const targetUrl = process.env.TARGET_URL || "static dist/";
-            const liveManifestStr = process.env.LIVE_MANIFEST || "";
-            const staticManifestStr = process.env.STATIC_MANIFEST || "";
             const liveLinksStr = process.env.LIVE_LINKS || "";
             const staticLinksStr = process.env.STATIC_LINKS || "";
             const summaryFile = process.env.GITHUB_STEP_SUMMARY;
@@ -674,12 +684,7 @@ jobs:
             let manifest = null;
             let links = {};
 
-            try {
-              const rawManifest = liveManifestStr || staticManifestStr;
-              if (rawManifest) manifest = JSON.parse(rawManifest);
-            } catch (e) {}
-
-            if (!manifest && fs.existsSync(".lighthouseci/manifest.json")) {
+            if (fs.existsSync(".lighthouseci/manifest.json")) {
               try {
                 manifest = JSON.parse(fs.readFileSync(".lighthouseci/manifest.json", "utf8"));
               } catch (e) {}

@@ -43,6 +43,7 @@ runs:
         CF_URL: ${{ inputs.cloudflare_url }}
         VERCEL_URL: ${{ inputs.vercel_url }}
         CUSTOM_MSG: ${{ inputs.custom_message }}
+        HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
       run: |
         CF_CLEAN=$(echo "$CF_URL" | tr -cd 'a-zA-Z0-9.:/_-')
         if [ -z "$CF_CLEAN" ] && [ -f cf_deploy_url.txt ]; then
@@ -80,7 +81,7 @@ runs:
 
           echo ""
           echo "---"
-          echo "*Commit: \`${{ github.event.pull_request.head.sha || github.sha }}\` · Workflow: [#${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})*"
+          echo "*Commit: \`${HEAD_SHA}\` · Workflow: [#${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})*"
           echo "COMMENT_EOF"
         } >> "$GITHUB_OUTPUT"
 

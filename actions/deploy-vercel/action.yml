@@ -152,12 +152,16 @@ runs:
 
     - name: Record Vercel deployment summary
       shell: bash
+      env:
+        TARGET_BRANCH: ${{ github.head_ref || github.ref_name }}
       run: |
-        echo "### Vercel Deployment" >> "$GITHUB_STEP_SUMMARY"
-        echo "" >> "$GITHUB_STEP_SUMMARY"
-        echo "| Detail | Value |" >> "$GITHUB_STEP_SUMMARY"
-        echo "| :--- | :--- |" >> "$GITHUB_STEP_SUMMARY"
-        echo "| URL | ${{ steps.resolve_url.outputs.deploy_url }} |" >> "$GITHUB_STEP_SUMMARY"
-        echo "| Branch | \`${{ github.head_ref || github.ref_name }}\` |" >> "$GITHUB_STEP_SUMMARY"
-        echo "| Mode | ${{ steps.deploy.outputs.is_production == 'true' && 'Production' || 'Preview' }} |" >> "$GITHUB_STEP_SUMMARY"
-        echo "| Status | Deployed |" >> "$GITHUB_STEP_SUMMARY"
+        {
+          echo "### Vercel Deployment"
+          echo ""
+          echo "| Detail | Value |"
+          echo "| :--- | :--- |"
+          echo "| URL | ${{ steps.resolve_url.outputs.deploy_url }} |"
+          echo "| Branch | \`${TARGET_BRANCH}\` |"
+          echo "| Mode | ${{ steps.deploy.outputs.is_production == 'true' && 'Production' || 'Preview' }} |"
+          echo "| Status | Deployed |"
+        } >> "$GITHUB_STEP_SUMMARY"

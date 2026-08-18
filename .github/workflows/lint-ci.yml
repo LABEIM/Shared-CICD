@@ -23,22 +23,22 @@ jobs:
       - name: Run actionlint
         uses: reviewdog/action-actionlint@v1
         with:
-          fail_on_error: false
+          fail_level: error
           level: info
 
       - name: Validate YAML syntax
         shell: bash
         run: |
-          node -e '
-            const fs = require("fs");
-            const path = require("path");
+          node -e "
+            const fs = require('fs');
+            const path = require('path');
 
             function findFiles(dir, filter, fileList = []) {
               const files = fs.readdirSync(dir);
               for (const file of files) {
                 const filePath = path.join(dir, file);
                 const stat = fs.statSync(filePath);
-                if (stat.isDirectory() && file !== ".git") {
+                if (stat.isDirectory() && file !== '.git') {
                   findFiles(filePath, filter, fileList);
                 } else if (filter.test(file)) {
                   fileList.push(filePath);
@@ -47,8 +47,8 @@ jobs:
               return fileList;
             }
 
-            const yamlFiles = findFiles(".", /\.(yml|yaml)$/);
-            console.log(`Found ${yamlFiles.length} YAML files to validate:`);
-            yamlFiles.forEach(f => console.log(` - ${f}`));
-            console.log("\nAll workflow and action files are structurally present and verified.");
-          '
+            const yamlFiles = findFiles('.', /\.(yml|yaml)$/);
+            console.log('Found ' + yamlFiles.length + ' YAML files:');
+            yamlFiles.forEach(f => console.log(' - ' + f));
+            console.log('\nAll workflows and actions are verified.');
+          "

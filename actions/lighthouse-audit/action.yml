@@ -77,12 +77,12 @@ runs:
         BASE_URL: ${{ steps.resolve_target.outputs.target_url }}
         ROUTES: ${{ inputs.routes }}
       run: |
-        BASE=$(echo "$BASE_URL" | sed 's|/$||')
+        BASE="${BASE_URL%/}"
         
         {
           echo "urls<<EOF_URLS"
           for ROUTE in $ROUTES; do
-            CLEAN_ROUTE=$(echo "$ROUTE" | sed 's|^/||')
+            CLEAN_ROUTE="${ROUTE#/}"
             if [ -z "$CLEAN_ROUTE" ]; then
               echo "${BASE}/"
             else
@@ -114,16 +114,12 @@ runs:
       shell: bash
       env:
         TARGET_URL: ${{ steps.resolve_target.outputs.target_url }}
-        LIVE_MANIFEST: ${{ steps.lighthouse_live.outputs.manifest }}
-        STATIC_MANIFEST: ${{ steps.lighthouse_static.outputs.manifest }}
         LIVE_LINKS: ${{ steps.lighthouse_live.outputs.links }}
         STATIC_LINKS: ${{ steps.lighthouse_static.outputs.links }}
       run: |
         node -e '
           const fs = require("fs");
           const targetUrl = process.env.TARGET_URL || "Static build";
-          const liveManifestStr = process.env.LIVE_MANIFEST || "";
-          const staticManifestStr = process.env.STATIC_MANIFEST || "";
           const liveLinksStr = process.env.LIVE_LINKS || "";
           const staticLinksStr = process.env.STATIC_LINKS || "";
           const summaryFile = process.env.GITHUB_STEP_SUMMARY;
@@ -132,12 +128,7 @@ runs:
           let manifest = null;
           let links = {};
 
-          try {
-            const rawManifest = liveManifestStr || staticManifestStr;
-            if (rawManifest) manifest = JSON.parse(rawManifest);
-          } catch (e) {}
-
-          if (!manifest && fs.existsSync(".lighthouseci/manifest.json")) {
+          if (fs.existsSync(".lighthouseci/manifest.json")) {
             try {
               manifest = JSON.parse(fs.readFileSync(".lighthouseci/manifest.json", "utf8"));
             } catch (e) {}

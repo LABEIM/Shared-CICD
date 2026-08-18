@@ -50,14 +50,14 @@ runs:
         PROD_BRANCH: ${{ inputs.production_branch }}
         MAX_RETRIES: ${{ inputs.max_retries }}
         INITIAL_RETRY_DELAY: ${{ inputs.retry_delay }}
+        RAW_HEAD_REF: ${{ github.head_ref }}
+        RAW_REF_NAME: ${{ github.ref_name }}
       run: |
         if [ -z "$CLOUDFLARE_API_TOKEN" ] || [ -z "$CLOUDFLARE_ACCOUNT_ID" ]; then
           echo "::error::CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID must be provided."
           exit 1
         fi
 
-        RAW_HEAD_REF="${{ github.head_ref }}"
-        RAW_REF_NAME="${{ github.ref_name }}"
         BRANCH_NAME="${RAW_HEAD_REF:-$RAW_REF_NAME}"
 
         echo "Target Cloudflare Project: $PROJECT_NAME"
@@ -147,12 +147,16 @@ runs:
 
     - name: Record Cloudflare deployment summary
       shell: bash
+      env:
+        TARGET_BRANCH: ${{ github.head_ref || github.ref_name }}
       run: |
-        echo "### Cloudflare Pages Deployment" >> "$GITHUB_STEP_SUMMARY"
-        echo "" >> "$GITHUB_STEP_SUMMARY"
-        echo "| Detail | Value |" >> "$GITHUB_STEP_SUMMARY"
-        echo "| :--- | :--- |" >> "$GITHUB_STEP_SUMMARY"
-        echo "| URL | ${{ steps.deploy.outputs.deploy_url }} |" >> "$GITHUB_STEP_SUMMARY"
-        echo "| Branch | \`${{ github.head_ref || github.ref_name }}\` |" >> "$GITHUB_STEP_SUMMARY"
-        echo "| Mode | ${{ steps.deploy.outputs.is_production == 'true' && 'Production' || 'Branch Preview' }} |" >> "$GITHUB_STEP_SUMMARY"
-        echo "| Status | Deployed |" >> "$GITHUB_STEP_SUMMARY"
+        {
+          echo "### Cloudflare Pages Deployment"
+          echo ""
+          echo "| Detail | Value |"
+          echo "| :--- | :--- |"
+          echo "| URL | ${{ steps.deploy.outputs.deploy_url }} |"
+          echo "| Branch | \`${TARGET_BRANCH}\` |"
+          echo "| Mode | ${{ steps.deploy.outputs.is_production == 'true' && 'Production' || 'Branch Preview' }} |"
+          echo "| Status | Deployed |"
+        } >> "$GITHUB_STEP_SUMMARY"
