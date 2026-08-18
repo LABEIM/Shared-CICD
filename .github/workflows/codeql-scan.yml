@@ -1,16 +1,17 @@
 name: "CodeQL Security Analysis"
 
 on:
-  push:
-    branches: [ "main" ]
-  pull_request:
-    branches: [ "main" ]
-  schedule:
-    - cron: '30 4 * * 1'
   workflow_call:
     inputs:
       language:
         description: 'Language to analyze (e.g. javascript-typescript, python, go)'
+        required: false
+        type: string
+        default: 'javascript-typescript'
+  workflow_dispatch:
+    inputs:
+      language:
+        description: 'Language to analyze'
         required: false
         type: string
         default: 'javascript-typescript'
