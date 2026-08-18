@@ -1,0 +1,42 @@
+name: Release Tag Manager
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  update-major-tag:
+    name: Update Floating Major Tag
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Move and push floating major tag
+        env:
+          RAW_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          TAG="${RAW_TAG}"
+          echo "Published release tag: ${TAG}"
+
+          # Extract major version prefix (e.g. 'v1' from 'v1.2.3')
+          MAJOR_VERSION=$(echo "${TAG}" | grep -oP '^v[0-9]+' || true)
+
+          if [ -z "${MAJOR_VERSION}" ]; then
+            echo "Tag '${TAG}' is not in semantic version format (e.g. v1.0.0). Skipping floating tag update."
+            exit 0
+          fi
+
+          echo "Updating floating major tag '${MAJOR_VERSION}' to point to '${TAG}'..."
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -fa "${MAJOR_VERSION}" -m "Automated update of ${MAJOR_VERSION} to ${TAG}"
+          git push origin "${MAJOR_VERSION}" --force
+          echo "Successfully updated and pushed floating tag '${MAJOR_VERSION}'."
