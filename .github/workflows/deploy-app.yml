@@ -112,7 +112,7 @@ jobs:
     timeout-minutes: 15
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Setup pnpm (if requested)
         if: inputs.package_manager == 'pnpm'
@@ -127,7 +127,7 @@ jobs:
           bun-version: latest
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: ${{ inputs.node_version }}
           cache: ${{ (inputs.package_manager == 'npm' || inputs.package_manager == 'pnpm' || inputs.package_manager == 'yarn') && inputs.package_manager || '' }}
@@ -187,7 +187,7 @@ jobs:
           fi
 
       - name: Upload dist build artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: dist-static-build
           path: ${{ inputs.dist_dir }}/
@@ -231,13 +231,13 @@ jobs:
       deploy_url: ${{ steps.deploy_cf.outputs.deploy_url }}
     steps:
       - name: Download dist build artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: dist-static-build
           path: ${{ inputs.dist_dir }}/
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: ${{ inputs.node_version }}
 
@@ -324,7 +324,7 @@ jobs:
           echo "$DEPLOY_URL" > cf_deploy_url.txt
 
       - name: Upload CF deploy URL artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: cf-deploy-url
           path: cf_deploy_url.txt
@@ -363,13 +363,13 @@ jobs:
       VERCEL_PROJECT_ID: ${{ inputs.vercel_project_id }}
     steps:
       - name: Download dist build artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: dist-static-build
           path: ${{ inputs.dist_dir }}/
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: ${{ inputs.node_version }}
 
@@ -455,7 +455,7 @@ jobs:
           echo "deploy_url=$DEPLOY_URL" >> "$GITHUB_OUTPUT"
 
       - name: Upload Vercel deploy URL artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: vercel-deploy-url
           path: vercel_deploy_url.txt
@@ -487,14 +487,14 @@ jobs:
       pull-requests: write
     steps:
       - name: Download CF deploy URL artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: cf-deploy-url
           path: .
         continue-on-error: true
 
       - name: Download Vercel deploy URL artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: vercel-deploy-url
           path: .
@@ -568,23 +568,23 @@ jobs:
       pull-requests: write
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Download dist build artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: dist-static-build
           path: ${{ inputs.dist_dir }}/
 
       - name: Download CF deploy URL artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: cf-deploy-url
           path: .
         continue-on-error: true
 
       - name: Download Vercel deploy URL artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: vercel-deploy-url
           path: .
