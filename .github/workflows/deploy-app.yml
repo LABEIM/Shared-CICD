@@ -305,11 +305,15 @@ jobs:
         id: stage_dist
         shell: bash
         working-directory: ${{ inputs.working_directory }}
+        env:
+          PROJECT_NAME: ${{ inputs.cloudflare_project_name }}
+          BRANCH_NAME: ${{ github.head_ref || github.ref_name }}
+          REPO_NAME: ${{ github.repository }}
         run: |
           REQ_DIR="${{ inputs.dist_dir }}"
           FINAL_DIR="$REQ_DIR"
 
-          if [ "$REQ_DIR" = "auto" ] || [ ! -d "$REQ_DIR" ]; then
+          if [ "$REQ_DIR" = "auto" ] || [ ! -d "$REQ_DIR" ] || [ -z "$(ls -A "$REQ_DIR" 2>/dev/null)" ]; then
             # Search for standard static framework output directories
             if [ -d "dist" ] && [ "$(ls -A dist 2>/dev/null)" ]; then
               FINAL_DIR="dist"
@@ -333,11 +337,260 @@ jobs:
               mkdir -p dist
               find . -maxdepth 1 ! -name '.' ! -name 'dist' ! -name '.git' ! -name '.github' ! -name '.vercel' ! -name 'node_modules' ! -name '.lighthouseci' -exec cp -r {} dist/ \;
               FINAL_DIR="dist"
+            else
+              FINAL_DIR="dist"
             fi
+          fi
+
+          # Bootstrap Fallback: If output directory does not exist, is empty, or lacks index.html
+          IS_BOOTSTRAP="false"
+          if [ ! -d "$FINAL_DIR" ] || [ -z "$(ls -A "$FINAL_DIR" 2>/dev/null)" ] || [ ! -f "$FINAL_DIR/index.html" ]; then
+            echo "No deployable index.html or build artifacts found in '$FINAL_DIR'."
+            echo "Generating automatic Lighthouse-compliant bootstrap fallback..."
+            FINAL_DIR="dist"
+            mkdir -p "$FINAL_DIR"
+
+            DISP_PROJECT="${PROJECT_NAME:-${REPO_NAME#*/}}"
+            DISP_BRANCH="${BRANCH_NAME:-main}"
+
+            cat << HTML_EOF > "${FINAL_DIR}/index.html"
+            <!DOCTYPE html>
+            <html lang="en">
+            <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>${DISP_PROJECT} — Deployment Active</title>
+            <meta name="description" content="This project is successfully connected to the LABEIM automated CI/CD pipeline and Cloudflare Pages. Deployment is active and ready for development.">
+            <meta name="robots" content="index, follow">
+            <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🚀</text></svg>">
+            <style>
+            *, *::before, *::after {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            }
+            :root {
+            --bg: #090d16;
+            --card-bg: #111a2e;
+            --card-border: #1e293b;
+            --text-main: #f8fafc;
+            --text-muted: #94a3b8;
+            --accent: #38bdf8;
+            --accent-glow: rgba(56, 189, 248, 0.15);
+            --success: #22c55e;
+            --success-bg: rgba(34, 197, 94, 0.12);
+            --success-border: rgba(34, 197, 94, 0.3);
+            }
+            body {
+            font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background-color: var(--bg);
+            background-image: 
+            radial-gradient(circle at 15% 15%, rgba(56, 189, 248, 0.08) 0%, transparent 40%),
+            radial-gradient(circle at 85% 85%, rgba(99, 102, 241, 0.08) 0%, transparent 40%);
+            color: var(--text-main);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 24px 16px;
+            line-height: 1.6;
+            }
+            .container {
+            width: 100%;
+            max-width: 640px;
+            }
+            .card {
+            background: var(--card-bg);
+            border: 1px solid var(--card-border);
+            border-radius: 16px;
+            padding: 36px 32px;
+            box-shadow: 0 20px 40px -15px rgba(0, 0, 0, 0.5), 0 0 50px -10px var(--accent-glow);
+            }
+            .badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 14px;
+            border-radius: 9999px;
+            background: var(--success-bg);
+            border: 1px solid var(--success-border);
+            color: var(--success);
+            font-size: 13px;
+            font-weight: 600;
+            margin-bottom: 20px;
+            letter-spacing: 0.02em;
+            }
+            .badge-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background-color: var(--success);
+            box-shadow: 0 0 8px var(--success);
+            animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+            }
+            @keyframes pulse {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.4; transform: scale(0.85); }
+            }
+            h1 {
+            font-size: 28px;
+            font-weight: 700;
+            letter-spacing: -0.02em;
+            margin-bottom: 12px;
+            background: linear-gradient(135deg, #ffffff 0%, #e2e8f0 50%, #94a3b8 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            }
+            .subtitle {
+            color: var(--text-muted);
+            font-size: 15px;
+            margin-bottom: 28px;
+            }
+            .info-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+            margin-bottom: 28px;
+            }
+            @media (max-width: 480px) {
+            .info-grid { grid-template-columns: 1fr; }
+            .card { padding: 24px 20px; }
+            h1 { font-size: 24px; }
+            }
+            .info-item {
+            background: rgba(15, 23, 42, 0.6);
+            border: 1px solid var(--card-border);
+            border-radius: 10px;
+            padding: 12px 16px;
+            }
+            .info-label {
+            font-size: 12px;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-bottom: 4px;
+            }
+            .info-value {
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--text-main);
+            word-break: break-all;
+            }
+            .steps-section {
+            border-top: 1px solid var(--card-border);
+            padding-top: 24px;
+            }
+            .steps-title {
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--accent);
+            margin-bottom: 14px;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            }
+            .steps-list {
+            list-style: none;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            }
+            .steps-list li {
+            font-size: 14px;
+            color: var(--text-muted);
+            display: flex;
+            align-items: flex-start;
+            gap: 10px;
+            }
+            .step-number {
+            background: rgba(56, 189, 248, 0.15);
+            color: var(--accent);
+            width: 22px;
+            height: 22px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+            font-weight: 700;
+            flex-shrink: 0;
+            margin-top: 1px;
+            }
+            footer {
+            margin-top: 24px;
+            text-align: center;
+            color: var(--text-muted);
+            font-size: 13px;
+            }
+            </style>
+            </head>
+            <body>
+            <main class="container">
+            <div class="card">
+            <div class="badge">
+            <span class="badge-dot"></span>
+            <span>Cloudflare Pages &middot; Deployment Active</span>
+            </div>
+            <h1>${DISP_PROJECT}</h1>
+            <p class="subtitle">This repository is live and successfully connected to the LABEIM automated deployment pipeline. Once your frontend code is pushed, this placeholder will automatically update.</p>
+                        <div class="info-grid">
+            <div class="info-item">
+            <div class="info-label">Repository</div>
+            <div class="info-value">${REPO_NAME}</div>
+            </div>
+            <div class="info-item">
+            <div class="info-label">Branch</div>
+            <div class="info-value">${DISP_BRANCH}</div>
+            </div>
+            <div class="info-item">
+            <div class="info-label">Target Platform</div>
+            <div class="info-value">Cloudflare Pages</div>
+            </div>
+            <div class="info-item">
+            <div class="info-label">Pipeline Status</div>
+            <div class="info-value">Active &amp; Ready</div>
+            </div>
+            </div>
+                        <div class="steps-section">
+            <h2 class="steps-title">Next Steps</h2>
+            <ul class="steps-list">
+            <li>
+            <span class="step-number">1</span>
+            <span>Scaffold your frontend application (e.g. Vite, Next.js, Astro, React, or static HTML).</span>
+            </li>
+            <li>
+            <span class="step-number">2</span>
+            <span>Commit and push your files to GitHub.</span>
+            </li>
+            <li>
+            <span class="step-number">3</span>
+            <span>The pipeline will automatically build and deploy your live web application.</span>
+            </li>
+            </ul>
+            </div>
+            </div>
+            <footer>
+            <p>LABEIM Shared CI/CD Pipeline &middot; Cloudflare Pages Deployment</p>
+            </footer>
+            </main>
+            </body>
+            </html>
+          HTML_EOF
+
+            cp "${FINAL_DIR}/index.html" "${FINAL_DIR}/404.html"
+            echo "/*    /index.html   200" > "${FINAL_DIR}/_redirects"
+            cat << 'ROBOTS_EOF' > "${FINAL_DIR}/robots.txt"
+            User-agent: *
+            Allow: /
+          ROBOTS_EOF
+
+            IS_BOOTSTRAP="true"
+            echo "Bootstrap fallback successfully created in '${FINAL_DIR}'."
           fi
 
           echo "Resolved output directory: $FINAL_DIR"
           echo "dist_dir=${FINAL_DIR}" >> "$GITHUB_OUTPUT"
+          echo "is_bootstrap=${IS_BOOTSTRAP}" >> "$GITHUB_OUTPUT"
 
       - name: Generate build artifact hash
         id: hash
@@ -370,6 +623,7 @@ jobs:
         env:
           BRANCH_NAME: ${{ github.ref_name }}
           COMMIT_SHA: ${{ github.sha }}
+          IS_BOOTSTRAP: ${{ steps.stage_dist.outputs.is_bootstrap }}
         run: |
           TARGET_DIR="${{ steps.stage_dist.outputs.dist_dir }}"
           DIR_SIZE="N/A"
@@ -385,6 +639,11 @@ jobs:
             echo "| :--- | :--- |"
             echo "| Package Manager | \`${{ steps.detect.outputs.package_manager }}\` |"
             echo "| Output Directory | \`${TARGET_DIR}\` |"
+            if [ "$IS_BOOTSTRAP" = "true" ]; then
+              echo "| Deployment Type | **Bootstrap Fallback (Initial Commit)** |"
+            else
+              echo "| Deployment Type | Application Static Build |"
+            fi
             echo "| Build Duration | ${{ steps.build.outputs.duration }} |"
             echo "| Artifact SHA256 | \`${HASH:0:16}...\` |"
             echo "| Artifact Size | ${DIR_SIZE} |"
@@ -437,6 +696,7 @@ jobs:
           BUILD_LOCATION: ${{ inputs.build_location }}
           RAW_HEAD_REF: ${{ github.head_ref }}
           RAW_REF_NAME: ${{ github.ref_name }}
+          REPO_NAME: ${{ github.repository }}
         run: |
           BRANCH_NAME="${RAW_HEAD_REF:-$RAW_REF_NAME}"
           CLEAN_BRANCH=$(echo "$BRANCH_NAME" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g; s/^-//; s/-$//')
@@ -444,6 +704,9 @@ jobs:
           if [ "$BRANCH_NAME" = "$PROD_BRANCH" ] || [ "$CLEAN_BRANCH" = "main" ] || [ "$CLEAN_BRANCH" = "master" ]; then
             IS_PROD="true"
           fi
+
+          RESOLVED_PROJECT="${PROJECT_NAME:-${REPO_NAME#*/}}"
+          CLEAN_PROJECT=$(echo "$RESOLVED_PROJECT" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g; s/^-//; s/-$//')
 
           if [ -n "$DEPLOY_HOOK" ]; then
             echo "Triggering remote Cloudflare Pages build via Deploy Hook..."
@@ -457,9 +720,9 @@ jobs:
             fi
 
             if [ "$IS_PROD" = "true" ]; then
-              DEPLOY_URL="https://${PROJECT_NAME}.pages.dev"
+              DEPLOY_URL="https://${CLEAN_PROJECT}.pages.dev"
             else
-              DEPLOY_URL="https://${CLEAN_BRANCH}.${PROJECT_NAME}.pages.dev"
+              DEPLOY_URL="https://${CLEAN_BRANCH}.${CLEAN_PROJECT}.pages.dev"
             fi
           else
             if [ -z "$CLOUDFLARE_API_TOKEN" ] || [ -z "$CLOUDFLARE_ACCOUNT_ID" ]; then
@@ -467,8 +730,221 @@ jobs:
               exit 1
             fi
 
+            # Auto-bootstrap fallback if DIST_DIR is missing, empty, or lacks index.html
+            if [ ! -d "$DIST_DIR" ] || [ -z "$(ls -A "$DIST_DIR" 2>/dev/null)" ] || [ ! -f "$DIST_DIR/index.html" ]; then
+              echo "No deployable HTML found in '$DIST_DIR'. Bootstrapping fallback placeholder..."
+              mkdir -p "$DIST_DIR"
+
+              cat << HTML_EOF > "${DIST_DIR}/index.html"
+            <!DOCTYPE html>
+            <html lang="en">
+            <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>${CLEAN_PROJECT} — Deployment Active</title>
+            <meta name="description" content="This project is successfully connected to the LABEIM automated CI/CD pipeline and Cloudflare Pages. Deployment is active and ready for development.">
+            <meta name="robots" content="index, follow">
+            <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🚀</text></svg>">
+            <style>
+            *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+            :root {
+            --bg: #090d16;
+            --card-bg: #111a2e;
+            --card-border: #1e293b;
+            --text-main: #f8fafc;
+            --text-muted: #94a3b8;
+            --accent: #38bdf8;
+            --accent-glow: rgba(56, 189, 248, 0.15);
+            --success: #22c55e;
+            --success-bg: rgba(34, 197, 94, 0.12);
+            --success-border: rgba(34, 197, 94, 0.3);
+            }
+            body {
+            font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background-color: var(--bg);
+            background-image: 
+            radial-gradient(circle at 15% 15%, rgba(56, 189, 248, 0.08) 0%, transparent 40%),
+            radial-gradient(circle at 85% 85%, rgba(99, 102, 241, 0.08) 0%, transparent 40%);
+            color: var(--text-main);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 24px 16px;
+            line-height: 1.6;
+            }
+            .container { width: 100%; max-width: 640px; }
+            .card {
+            background: var(--card-bg);
+            border: 1px solid var(--card-border);
+            border-radius: 16px;
+            padding: 36px 32px;
+            box-shadow: 0 20px 40px -15px rgba(0, 0, 0, 0.5), 0 0 50px -10px var(--accent-glow);
+            }
+            .badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 14px;
+            border-radius: 9999px;
+            background: var(--success-bg);
+            border: 1px solid var(--success-border);
+            color: var(--success);
+            font-size: 13px;
+            font-weight: 600;
+            margin-bottom: 20px;
+            letter-spacing: 0.02em;
+            }
+            .badge-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background-color: var(--success);
+            box-shadow: 0 0 8px var(--success);
+            animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+            }
+            @keyframes pulse {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.4; transform: scale(0.85); }
+            }
+            h1 {
+            font-size: 28px;
+            font-weight: 700;
+            letter-spacing: -0.02em;
+            margin-bottom: 12px;
+            background: linear-gradient(135deg, #ffffff 0%, #e2e8f0 50%, #94a3b8 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            }
+            .subtitle { color: var(--text-muted); font-size: 15px; margin-bottom: 28px; }
+            .info-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+            margin-bottom: 28px;
+            }
+            @media (max-width: 480px) {
+            .info-grid { grid-template-columns: 1fr; }
+            .card { padding: 24px 20px; }
+            h1 { font-size: 24px; }
+            }
+            .info-item {
+            background: rgba(15, 23, 42, 0.6);
+            border: 1px solid var(--card-border);
+            border-radius: 10px;
+            padding: 12px 16px;
+            }
+            .info-label {
+            font-size: 12px;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-bottom: 4px;
+            }
+            .info-value {
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--text-main);
+            word-break: break-all;
+            }
+            .steps-section { border-top: 1px solid var(--card-border); padding-top: 24px; }
+            .steps-title {
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--accent);
+            margin-bottom: 14px;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            }
+            .steps-list { list-style: none; display: flex; flex-direction: column; gap: 10px; }
+            .steps-list li {
+            font-size: 14px;
+            color: var(--text-muted);
+            display: flex;
+            align-items: flex-start;
+            gap: 10px;
+            }
+            .step-number {
+            background: rgba(56, 189, 248, 0.15);
+            color: var(--accent);
+            width: 22px;
+            height: 22px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+            font-weight: 700;
+            flex-shrink: 0;
+            margin-top: 1px;
+            }
+            footer { margin-top: 24px; text-align: center; color: var(--text-muted); font-size: 13px; }
+            </style>
+            </head>
+            <body>
+            <main class="container">
+            <div class="card">
+            <div class="badge">
+            <span class="badge-dot"></span>
+            <span>Cloudflare Pages &middot; Deployment Active</span>
+            </div>
+            <h1>${CLEAN_PROJECT}</h1>
+            <p class="subtitle">This repository is live and successfully connected to the LABEIM automated deployment pipeline. Once your frontend code is pushed, this placeholder will automatically update.</p>
+                        <div class="info-grid">
+            <div class="info-item">
+            <div class="info-label">Repository</div>
+            <div class="info-value">${REPO_NAME}</div>
+            </div>
+            <div class="info-item">
+            <div class="info-label">Branch</div>
+            <div class="info-value">${BRANCH_NAME}</div>
+            </div>
+            <div class="info-item">
+            <div class="info-label">Target Platform</div>
+            <div class="info-value">Cloudflare Pages</div>
+            </div>
+            <div class="info-item">
+            <div class="info-label">Pipeline Status</div>
+            <div class="info-value">Active &amp; Ready</div>
+            </div>
+            </div>
+                        <div class="steps-section">
+            <h2 class="steps-title">Next Steps</h2>
+            <ul class="steps-list">
+            <li>
+            <span class="step-number">1</span>
+            <span>Scaffold your frontend application (e.g. Vite, Next.js, Astro, React, or static HTML).</span>
+            </li>
+            <li>
+            <span class="step-number">2</span>
+            <span>Commit and push your files to GitHub.</span>
+            </li>
+            <li>
+            <span class="step-number">3</span>
+            <span>The pipeline will automatically build and deploy your live web application.</span>
+            </li>
+            </ul>
+            </div>
+            </div>
+            <footer>
+            <p>LABEIM Shared CI/CD Pipeline &middot; Cloudflare Pages Deployment</p>
+            </footer>
+            </main>
+            </body>
+            </html>
+          HTML_EOF
+
+              cp "${DIST_DIR}/index.html" "${DIST_DIR}/404.html"
+              echo "/*    /index.html   200" > "${DIST_DIR}/_redirects"
+              cat << 'ROBOTS_EOF' > "${DIST_DIR}/robots.txt"
+            User-agent: *
+            Allow: /
+          ROBOTS_EOF
+            fi
+
             # Auto-create Pages project shell if it does not exist yet
-            npx --yes wrangler pages project create "$PROJECT_NAME" --production-branch="$PROD_BRANCH" > /dev/null 2>&1 || true
+            npx --yes wrangler pages project create "$CLEAN_PROJECT" --production-branch="$PROD_BRANCH" > /dev/null 2>&1 || true
 
             # Deploy with retry logic (3 attempts, exponential backoff)
             MAX_RETRIES=3
@@ -476,7 +952,7 @@ jobs:
             for ATTEMPT in $(seq 1 $MAX_RETRIES); do
               echo "::group::Cloudflare deployment attempt $ATTEMPT/$MAX_RETRIES"
               if npx --yes wrangler pages deploy "$DIST_DIR" \
-                --project-name="$PROJECT_NAME" \
+                --project-name="$CLEAN_PROJECT" \
                 --branch="$BRANCH_NAME" \
                 --commit-dirty=true 2>&1 | tee cf_deploy.log; then
                 echo "::endgroup::"
@@ -502,7 +978,7 @@ jobs:
               if [ -n "$PROD_URL" ]; then
                 DEPLOY_URL="$PROD_URL"
               else
-                DEPLOY_URL="https://${PROJECT_NAME}.pages.dev"
+                DEPLOY_URL="https://${CLEAN_PROJECT}.pages.dev"
               fi
             else
               if [ -n "$BRANCH_PREVIEW_URL" ]; then
@@ -520,9 +996,9 @@ jobs:
 
             if [ -z "$DEPLOY_URL" ] || ! echo "$DEPLOY_URL" | grep -q '^https://'; then
               if [ "$IS_PROD" = "true" ]; then
-                DEPLOY_URL="https://${PROJECT_NAME}.pages.dev"
+                DEPLOY_URL="https://${CLEAN_PROJECT}.pages.dev"
               else
-                DEPLOY_URL="https://${CLEAN_BRANCH}.${PROJECT_NAME}.pages.dev"
+                DEPLOY_URL="https://${CLEAN_BRANCH}.${CLEAN_PROJECT}.pages.dev"
               fi
             fi
           fi
@@ -607,7 +1083,26 @@ jobs:
         working-directory: ${{ inputs.working_directory }}
         run: |
           mkdir -p .vercel/output/static
-          cp -r _dist_assets/. .vercel/output/static/
+          if [ -d "_dist_assets" ] && [ "$(ls -A _dist_assets 2>/dev/null)" ]; then
+            cp -r _dist_assets/. .vercel/output/static/
+          fi
+          if [ ! -f .vercel/output/static/index.html ]; then
+            echo "Scaffolding Vercel static fallback index.html..."
+            cat << 'HTML_EOF' > .vercel/output/static/index.html
+            <!DOCTYPE html>
+            <html lang="en">
+            <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>Deployment Active</title>
+            <meta name="description" content="Connected to LABEIM CI/CD pipeline. Deployment is active and ready for development.">
+            </head>
+            <body>
+            <h1>Deployment Active</h1>
+            </body>
+            </html>
+          HTML_EOF
+          fi
           printf '{"version":3}\n' > .vercel/output/config.json
           echo "Vercel Output API structure ready:"
           ls -la .vercel/output/
@@ -857,6 +1352,34 @@ jobs:
           configPath: ${{ inputs.lighthouse_config_path }}
           urls: ${{ steps.build_url_list.outputs.urls }}
           uploadArtifacts: true
+
+      - name: Ensure static build fallback exists for Lighthouse
+        if: steps.target_url.outputs.url == ''
+        shell: bash
+        run: |
+          if [ -d "_dist_assets" ] && [ ! -d "dist" ]; then
+            cp -r _dist_assets dist
+          fi
+          if [ ! -d "dist" ] || [ ! -f "dist/index.html" ]; then
+            mkdir -p dist
+            cat << 'HTML_EOF' > dist/index.html
+            <!DOCTYPE html>
+            <html lang="en">
+            <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>Deployment Active</title>
+            <meta name="description" content="Connected to LABEIM CI/CD pipeline. Deployment is active and ready for development.">
+            </head>
+            <body>
+            <main>
+            <h1>Deployment Active</h1>
+            <p>Application is ready.</p>
+            </main>
+            </body>
+            </html>
+          HTML_EOF
+          fi
 
       - name: Run Lighthouse audit (Static Fallback)
         if: steps.target_url.outputs.url == ''

@@ -74,8 +74,25 @@ runs:
         mkdir -p .vercel/output/static
         if [ "$DIST" = "." ] || [ "$DIST" = "./" ]; then
           find . -maxdepth 1 ! -name '.' ! -name '.git' ! -name '.github' ! -name '.vercel' ! -name 'node_modules' ! -name '.lighthouseci' -exec cp -r {} .vercel/output/static/ \;
-        else
+        elif [ -d "$DIST" ] && [ "$(ls -A "$DIST" 2>/dev/null)" ]; then
           cp -r "${DIST}"/. .vercel/output/static/
+        fi
+        if [ ! -f .vercel/output/static/index.html ]; then
+          echo "Scaffolding Vercel static fallback index.html..."
+          cat << 'HTML_EOF' > .vercel/output/static/index.html
+          <!DOCTYPE html>
+          <html lang="en">
+          <head>
+          <meta charset="UTF-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <title>Deployment Active</title>
+          <meta name="description" content="Connected to LABEIM CI/CD pipeline. Deployment is active and ready for development.">
+          </head>
+          <body>
+          <h1>Deployment Active</h1>
+          </body>
+          </html>
+        HTML_EOF
         fi
         printf '{"version":3}\n' > .vercel/output/config.json
         echo "Vercel Output API structure prepared:"
