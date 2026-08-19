@@ -134,7 +134,7 @@ jobs:
       detected_dist_dir: ${{ steps.stage_dist.outputs.dist_dir }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Detect project environment & package manager
         id: detect
@@ -190,7 +190,7 @@ jobs:
 
       - name: Setup pnpm (if requested)
         if: steps.detect.outputs.package_manager == 'pnpm'
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6
         with:
           version: latest
 
@@ -202,7 +202,7 @@ jobs:
 
       - name: Setup Node.js
         if: steps.detect.outputs.package_manager != 'none' && steps.detect.outputs.package_manager != 'static'
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: ${{ inputs.node_version != 'auto' && inputs.node_version || '' }}
           node-version-file: ${{ (inputs.node_version == 'auto' || inputs.node_version == '') && (hashFiles(format('{0}/.nvmrc', inputs.working_directory), format('{0}/.node-version', inputs.working_directory)) != '' && (hashFiles(format('{0}/.nvmrc', inputs.working_directory)) != '' && format('{0}/.nvmrc', inputs.working_directory) || format('{0}/.node-version', inputs.working_directory)) || '') || '' }}
@@ -611,7 +611,7 @@ jobs:
           fi
 
       - name: Upload dist build artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: dist-static-build
           path: ${{ inputs.working_directory == '.' && format('{0}/', steps.stage_dist.outputs.dist_dir) || format('{0}/{1}/', inputs.working_directory, steps.stage_dist.outputs.dist_dir) }}
@@ -674,11 +674,11 @@ jobs:
     steps:
       - name: Checkout repository (if skipping GitHub build)
         if: inputs.build_location != 'github' && inputs.build_location != '' && inputs.build_location != 'auto'
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Download dist build artifact (if built on GitHub)
         if: inputs.build_location == 'github' || inputs.build_location == '' || inputs.build_location == 'auto'
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: dist-static-build
           path: _dist_assets/
@@ -1053,11 +1053,11 @@ jobs:
     steps:
       - name: Checkout repository (for remote build / standalone deploy)
         if: inputs.build_location == 'vercel' || inputs.build_location == 'none' || inputs.build_location == 'skip'
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Download dist build artifact (for prebuilt GitHub build)
         if: inputs.build_location == 'github' || inputs.build_location == '' || inputs.build_location == 'auto'
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: dist-static-build
           path: _dist_assets/
@@ -1297,12 +1297,12 @@ jobs:
       pull-requests: write
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Download dist build artifact (if available)
         if: inputs.build_location == 'github' || inputs.build_location == '' || inputs.build_location == 'auto'
         continue-on-error: true
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: dist-static-build
           path: _dist_assets/
