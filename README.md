@@ -1,385 +1,60 @@
 # Shared CI/CD Framework
 
-A production-grade, modular CI/CD framework for web applications. Built with a **Hybrid Architecture** combining:
-1. **Composable Actions**: Independent building blocks for runtime setup, multi-cloud deployments, PR feedback, and performance audits.
-2. **Reusable Workflows**: Complete out-of-the-box pipelines that downstream projects can adopt with a 15-line workflow file.
-3. **Configurable Build Location**: Choose whether to build on GitHub Actions runners, or offload builds to Vercel/Cloudflare cloud compute to conserve GitHub runner minutes on private repositories.
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![CI/CD](https://github.com/LABEIM/Shared-CICD/actions/workflows/lint-ci.yml/badge.svg)](https://github.com/LABEIM/Shared-CICD/actions/workflows/lint-ci.yml)
+[![Contributor Covenant](https://img.shields.io/badge/Contributor%20Covenant-2.1-4baaaa.svg)](CODE_OF_CONDUCT.md)
+[![Security Policy](https://img.shields.io/badge/Security-Policy-brightgreen.svg)](SECURITY.md)
+[![Organization](https://img.shields.io/badge/Org-LABEIM-6366f1.svg)](https://eimlab.org)
+
+A production-grade, modular CI/CD framework for web applications: composable GitHub Actions and reusable workflows for multi-cloud deployment to Cloudflare Pages and Vercel, pull-request previews, Lighthouse audits, and security scanning.
+
+[**Usage Guide**](USAGE.md) · [**EIM Research Lab**](https://eimlab.org) · [**Report Issue**](https://github.com/LABEIM/Shared-CICD/issues)
 
 ---
 
-## Architecture Overview
+## About This Project
 
-```mermaid
-flowchart TD
-    subgraph SharedRepo ["Central Shared CI/CD Repository"]
-        subgraph Actions ["Standalone Composite Actions"]
-            A1["actions/setup-and-build\n(Auto Lockfiles + Monorepo + Framework Out-Dirs)"]
-            A2["actions/deploy-cloudflare\n(Wrangler direct deploy or Remote Deploy Hooks)"]
-            A3["actions/deploy-vercel\n(Prebuilt Output API v3 or Vercel Cloud Build)"]
-            A4["actions/pr-preview-comment\n(Dynamic preview table + anchor tags + safe perms)"]
-            A5["actions/lighthouse-audit\n(Treosh LHCI + parsed scorecard summaries)"]
-        end
+This repository provides shared CI/CD building blocks consumed by LABEIM projects:
 
-        subgraph Workflows ["Master Reusable Workflows"]
-            W1[".github/workflows/deploy-app.yml\n(Feature toggles & build_location routing)"]
-            W2[".github/workflows/codeql-scan.yml\n(CodeQL SAST security scanning)"]
-            W3[".github/workflows/dependency-review.yml\n(Dependency vulnerability gate)"]
-            W4[".github/workflows/stale-cleanup.yml\n(Automated stale issues / PR lifecycle)"]
-        end
-    end
-
-    A1 --> W1
-    A2 --> W1
-    A3 --> W1
-    A4 --> W1
-    A5 --> W1
-
-    subgraph Downstream ["Consumer Repositories"]
-        P1["Project A (Cloudflare Only)\nuses: .../deploy-app.yml@v1\nenable_cloudflare: true\nenable_vercel: false"]
-        P2["Project B (Multi-Cloud)\nuses: .../deploy-app.yml@v1\nenable_cloudflare: true\nenable_vercel: true"]
-        P3["Project C (Quota Saver: Remote Vercel Build)\nbuild_location: 'vercel'\nenable_vercel: true"]
-        P4["Project D (Monorepo App)\nworking_directory: apps/web"]
-    end
-
-    W1 --> P1
-    W1 --> P2
-    W1 --> P3
-    W1 --> P4
-```
+- **Composable actions** under `actions/` for runtime setup and builds, Cloudflare Pages and Vercel deployments, pull-request preview comments, and Lighthouse CI audits.
+- **Reusable workflows** under `.github/workflows/` for the full deployment pipeline, CodeQL analysis, dependency review, stale issue/PR cleanup, Dependabot auto-merge, and release tag management.
+- **Ready-to-copy examples** under `examples/` covering zero-dependency static sites, framework applications, monorepos, multi-cloud deployments, and remote platform builds.
+- **Status:** Active
+- **Maintained by:** Enterprise Infrastructure Management (EIM) Research Laboratory, Telkom University
 
 ---
 
-## Quickstart
+## Getting Started
 
-### 1. Pure Static / Zero-Dependency Site (Vanilla HTML/CSS/JS)
-**Zero configuration required!** No `package.json` or build scripts needed. The workflow auto-detects static repositories, bypasses dependency installation and build steps, stages static assets, and deploys in **< 15 seconds**:
-
-```yaml
-name: CI/CD Pipeline
-
-on:
-  push:
-    branches: [ "main" ]
-  pull_request:
-    branches: [ "main" ]
-  workflow_dispatch:
-
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
-
-permissions:
-  contents: read
-  pull-requests: write
-  deployments: write
-
-jobs:
-  deploy:
-    uses: my-org/shared-ci-cd/.github/workflows/deploy-app.yml@v1
-    with:
-      enable_cloudflare: true
-      cloudflare_project_name: 'my-static-site'
-    secrets: inherit
-```
+Ready to deploy? The [Usage & Deployment Guide](USAGE.md) covers requirements, a minimal caller workflow, deployment patterns, the full input/secret reference, composite actions, framework recipes, and troubleshooting.
 
 ---
 
-### 2. Standard Framework Site (Auto-Detected Package Manager & Output)
-In your project repository, create `.github/workflows/ci-cd.yml`:
+## Documentation
 
-```yaml
-name: CI/CD Pipeline
-
-on:
-  push:
-    branches: [ "main" ]
-  pull_request:
-    branches: [ "main" ]
-  workflow_dispatch:
-
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
-
-permissions:
-  contents: read
-  pull-requests: write
-  deployments: write
-
-jobs:
-  deploy:
-    uses: LABEIM/shared-ci-cd/.github/workflows/deploy-app.yml@v1
-    with:
-      node_version: '22'
-      package_manager: 'auto' # Auto-detects npm, pnpm, bun, or yarn from lockfile
-      dist_dir: 'auto'        # Auto-detects dist, out, build, .output/public, etc.
-      enable_cloudflare: true
-      cloudflare_project_name: 'my-web-app'
-      enable_vercel: false
-      lighthouse_routes: |
-        /
-        /about
-        /contact
-    secrets: inherit
-```
+| Document | Contents |
+| :--- | :--- |
+| [Usage & Deployment Guide](USAGE.md) | Setup, deployment patterns, inputs, secrets, composite actions, troubleshooting |
+| [Release Guide](RELEASING.md) | SemVer strategy and floating major tags |
+| [Contributing Guide](CONTRIBUTING.md) | Branching, commit conventions, and the PR workflow |
+| [Code of Conduct](CODE_OF_CONDUCT.md) | Community standards and enforcement |
+| [Security Policy](SECURITY.md) | Supported versions and vulnerability reporting |
 
 ---
 
-### 3. Saving GitHub Quota: Remote Platform Build (Vercel / Cloudflare)
-For **private repositories** where GitHub Actions free minutes (2,000 min/mo) are limited, you can delegate the compilation to Vercel or Cloudflare's free build infrastructure.
+## Community & Contributing
 
-#### Delegate build to Vercel (Consumes 0 GitHub Actions Build Minutes):
-```yaml
-jobs:
-  deploy:
-    uses: LABEIM/shared-ci-cd/.github/workflows/deploy-app.yml@v1
-    with:
-      # Skips GitHub runner build job completely!
-      build_location: 'vercel'
-      enable_vercel: true
-      vercel_project_id: ${{ vars.VERCEL_PROJECT_ID }}
-      vercel_org_id: ${{ vars.VERCEL_ORG_ID }}
-      enable_cloudflare: false
-      lighthouse_routes: |
-        /
-        /dashboard
-    secrets: inherit
-```
+We are committed to fostering an open, welcoming, and harassment-free environment for all researchers, developers, and contributors. All participants and team members are expected to adhere to our [Code of Conduct](CODE_OF_CONDUCT.md).
 
-#### Delegate build to Cloudflare Pages via Deploy Hook:
-```yaml
-jobs:
-  deploy:
-    uses: LABEIM/shared-ci-cd/.github/workflows/deploy-app.yml@v1
-    with:
-      build_location: 'cloudflare'
-      enable_cloudflare: true
-      cloudflare_project_name: 'my-cf-app'
-      enable_vercel: false
-    secrets: inherit
-```
+For contribution workflows, git branching standards, and Pull Request guidelines, please refer to our [Contributing Guide](CONTRIBUTING.md).
+
+To report security vulnerabilities responsibly, please review our [Security Policy](SECURITY.md).
+
+For concerns or incident reports, please contact the project team or laboratory administration at [`lab@eimlab.org`](mailto:lab@eimlab.org).
 
 ---
 
-### 4. Monorepo / Subdirectory App (Turborepo, Nx, pnpm workspaces)
-Deploy an application located in a subfolder (e.g. `apps/web`):
+## License & Ownership
 
-```yaml
-jobs:
-  deploy:
-    uses: my-org/shared-ci-cd/.github/workflows/deploy-app.yml@v1
-    with:
-      working_directory: 'apps/web'
-      package_manager: 'auto'
-      dist_dir: 'auto'
-      enable_cloudflare: true
-      cloudflare_project_name: 'monorepo-web-app'
-    secrets: inherit
-```
-
----
-
-### 5. Multi-Cloud Parallel Deployment (Cloudflare + Vercel Backup)
-```yaml
-jobs:
-  deploy:
-    uses: LABEIM/shared-ci-cd/.github/workflows/deploy-app.yml@v1
-    with:
-      node_version: '22'
-      package_manager: 'auto'
-      dist_dir: 'auto'
-
-      # Both platforms deployed in parallel
-      enable_cloudflare: true
-      cloudflare_project_name: 'production-store'
-
-      enable_vercel: true
-      vercel_project_id: ${{ vars.VERCEL_PROJECT_ID }}
-      vercel_org_id: ${{ vars.VERCEL_ORG_ID }}
-
-      lighthouse_routes: |
-        /
-        /pricing
-    secrets: inherit
-```
-
----
-
-### 6. Using Standalone Composite Actions Directly
-If your project has custom Docker builds, staging environments, or multi-step release gates, import composite actions directly:
-
-```yaml
-jobs:
-  custom-build:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      
-      - name: Build site
-        uses: LABEIM/shared-ci-cd/actions/setup-and-build@v1
-        with:
-          package_manager: 'auto'
-          build_command: 'npm run build'
-          dist_dir: 'auto'
-
-      - name: Deploy to Cloudflare
-        id: cf
-        uses: LABEIM/shared-ci-cd/actions/deploy-cloudflare@v1
-        with:
-          project_name: 'my-custom-app'
-          dist_dir: 'dist'
-          api_token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          account_id: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-
-      - name: Post PR Comment
-        if: github.event_name == 'pull_request'
-        uses: LABEIM/shared-ci-cd/actions/pr-preview-comment@v1
-        with:
-          cloudflare_url: ${{ steps.cf.outputs.deploy_url }}
-```
-
----
-
-## Configuration Reference
-
-### Reusable Workflow (`deploy-app.yml`)
-
-#### Inputs (`with:`)
-
-| Input | Type | Default | Description |
-| :--- | :---: | :---: | :--- |
-| `build_location` | String | `'github'` | Where to build the app (`'github'`, `'vercel'`, `'cloudflare'`, `'none'`) |
-| `working_directory` | String | `'.'` | Working directory for monorepos or subfolder apps (e.g. `apps/web`) |
-| `node_version` | String | `'22'` | Node.js version (or `'auto'` to read `.nvmrc` / `.node-version`) |
-| `package_manager` | String | `'auto'` | Package manager (`'auto'`, `'npm'`, `'pnpm'`, `'bun'`, `'yarn'`, `'none'`, `'static'`) |
-| `install_command` | String | `''` | Custom install command override (or `'none'` to skip) |
-| `check_command` | String | `''` | Optional diagnostic check (e.g. `npx astro check`, `npm run lint`) |
-| `build_command` | String | `'npm run build'` | Static build command (or `'none'` for static/pre-built sites, or `'auto'`) |
-| `dist_dir` | String | `'dist'` | Static output directory (`'dist'`, `'out'`, `'build'`, `'.output/public'`, `'auto'`) |
-| `enable_cloudflare` | Boolean | `true` | Enable Cloudflare Pages deployment |
-| `cloudflare_project_name` | String | `''` | Cloudflare Pages project name |
-| `production_branch` | String | `'main'` | Production branch name |
-| `enable_vercel` | Boolean | `false` | Enable Vercel parallel/backup deployment |
-| `vercel_project_id` | String | `''` | Vercel Project ID |
-| `vercel_org_id` | String | `''` | Vercel Organization ID or Team ID |
-| `enable_pr_comment` | Boolean | `true` | Automatically post/update PR preview comments |
-| `enable_lighthouse` | Boolean | `true` | Run automated Lighthouse CI performance audit |
-| `lighthouse_routes` | String | `'/'` | Space or newline-separated list of relative paths |
-| `lighthouse_config_path` | String | `''` | Optional custom `.lighthouserc.json` path |
-
-#### Secrets (`secrets:`)
-
-| Secret | Required | Description |
-| :--- | :---: | :--- |
-| `CLOUDFLARE_API_TOKEN` | If CF Wrangler enabled | Cloudflare API token with `Account.Cloudflare Pages:Edit` permissions |
-| `CLOUDFLARE_ACCOUNT_ID` | If CF Wrangler enabled | Cloudflare Account ID (32-character hexadecimal string) |
-| `CLOUDFLARE_DEPLOY_HOOK_URL` | If CF remote build | Cloudflare Pages Deploy Hook URL to trigger remote Cloudflare build |
-| `VERCEL_TOKEN` | If Vercel enabled | Vercel personal access token or automation token |
-
----
-
-## Build Location Comparison
-
-| Strategy | `build_location` | GitHub Runner Minutes Used | Platform Build Quota Used | Best For |
-| :--- | :---: | :---: | :---: | :--- |
-| **GitHub Actions** | `'github'` | Full build (~1–4 mins) | 0 mins | Public repos, multi-cloud synchronization, centralized lockfile verification |
-| **Vercel Remote** | `'vercel'` | ~10–15 seconds (CLI trigger) | Vercel Build Minutes | Private repos saving GitHub quota, SSR/ISR/Edge functions on Vercel |
-| **Cloudflare Remote**| `'cloudflare'` | ~2 seconds (Deploy Hook) | Cloudflare Free Builds (500/mo) | Private repos saving GitHub quota, Cloudflare Pages git projects |
-| **Zero Build** | `'none'` | ~5–10 seconds (Direct upload) | 0 mins | Vanilla HTML/CSS/JS, pre-built artifacts, static documentation |
-
----
-
-## Organization & Repository Setup
-
-### 1. Configure Organization Secrets
-Store shared infrastructure tokens once at the GitHub Organization level:
-* Go to **Organization Settings** -> **Secrets and variables** -> **Actions**.
-* Add:
-  - `CLOUDFLARE_API_TOKEN`
-  - `CLOUDFLARE_ACCOUNT_ID`
-  - `CLOUDFLARE_DEPLOY_HOOK_URL` *(Optional)*
-  - `VERCEL_TOKEN`
-* Set **Repository access** to `Selected repositories` or `All repositories`.
-
-### 2. Enable Workflow Access (Private/Internal Repositories)
-To allow other repositories in your GitHub Organization to call this workflow:
-1. In this shared repository, navigate to **Settings** -> **Actions** -> **General**.
-2. Under **Access**, select **Accessible from repositories in the '[your-org]' organization**.
-
-### 3. Release & Versioning Strategy
-* Consumer projects should reference major version tags (e.g. `@v1`):
-  ```yaml
-  uses: LABEIM/shared-ci-cd/.github/workflows/deploy-app.yml@v1
-  ```
-* For detailed step-by-step tag management and release instructions, see [RELEASING.md](RELEASING.md).
-
----
-
-## Framework Recipes
-
-### Pure Static / Vanilla HTML, CSS & JS (Zero Configuration)
-* Automatically skips package management & builds when `package.json` is missing.
-* Stages static root files or `public/` folder directly.
-```yaml
-with:
-  enable_cloudflare: true
-  cloudflare_project_name: 'my-static-site'
-```
-
-### Astro
-```yaml
-with:
-  package_manager: 'auto'
-  check_command: 'npx astro check'
-  build_command: 'npm run build'
-  dist_dir: 'dist'
-```
-
-### Next.js (Static Export on GitHub, or Full Build on Vercel)
-```yaml
-# Option A: Built on Vercel Cloud (zero GitHub Actions minutes consumed)
-with:
-  build_location: 'vercel'
-  enable_vercel: true
-  vercel_project_id: ${{ vars.VERCEL_PROJECT_ID }}
-  vercel_org_id: ${{ vars.VERCEL_ORG_ID }}
-
-# Option B: Built on GitHub Actions as Static Export
-with:
-  package_manager: 'auto'
-  build_command: 'npm run build'
-  dist_dir: 'out'
-```
-
-### Nuxt (Static / SSG)
-```yaml
-with:
-  package_manager: 'auto'
-  build_command: 'npx nuxi generate'
-  dist_dir: '.output/public' # or 'auto'
-```
-
-### Vite (React / Vue / Svelte)
-```yaml
-with:
-  package_manager: 'auto'
-  build_command: 'npm run build'
-  dist_dir: 'dist'
-```
-
-### Hugo / Jekyll / MkDocs
-```yaml
-with:
-  package_manager: 'none'
-  dist_dir: 'public' # or 'site'
-```
-
----
-
-## Auxiliary Reusable Workflows
-
-In addition to web deployment, this repository provides:
-* [`.github/workflows/codeql-scan.yml`](.github/workflows/codeql-scan.yml) - Static security analysis for JavaScript, TypeScript, Python, and Go.
-* [`.github/workflows/dependency-review.yml`](.github/workflows/dependency-review.yml) - High-severity supply chain vulnerability gate.
-* [`.github/workflows/stale-cleanup.yml`](.github/workflows/stale-cleanup.yml) - Automated issue and PR cleanup.
-* [`.github/workflows/dependabot-auto-merge.yml`](.github/workflows/dependabot-auto-merge.yml) - Auto-merging safe Dependabot updates.
+This project is open-source and licensed under the [MIT License](LICENSE).  
+Copyright (c) 2026 **Enterprise Infrastructure Management (EIM) Research Laboratory**, Telkom University.
