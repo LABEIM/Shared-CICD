@@ -11,8 +11,6 @@ We actively provide security patches, dependency updates, and vulnerability fixe
 | Version / Branch | Supported | Notes |
 | :--- | :---: | :--- |
 | `main` | :white_check_mark: | Actively maintained with the latest security fixes |
-| `v1.3.0` | :white_check_mark: | Current production release line |
-| `< v1` | :x: | End of Life (EOL) — upgrade to latest release |
 
 Consumers pin the floating major tag (`v1`), which always points to the latest supported `v1.x.x` release.
 
