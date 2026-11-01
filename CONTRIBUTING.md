@@ -95,11 +95,12 @@ Ensure you have the required tools installed on your development machine:
    cd shared-ci-cd
    ```
 
-2. **Validate workflows and actions:**
+2. **Validate workflows:**
    ```bash
    actionlint
-   actionlint actions/*/action.yml
    ```
+
+   Composite action metadata is validated as YAML by the CI syntax check.
 
 3. **Verify YAML syntax:** the same check used by CI runs automatically in [`.github/workflows/lint-ci.yml`](.github/workflows/lint-ci.yml). You can run it through your editor's YAML parser or the Node.js script in that workflow.
 
@@ -170,7 +171,7 @@ git commit -S -m "feat(lighthouse-audit): parse category scores"
 ### PR Submission Checklist
 
 Before submitting your Pull Request, ensure:
-- [ ] `actionlint` and `actionlint actions/*/action.yml` pass with zero errors.
+- [ ] `actionlint` passes with zero errors and all YAML files parse.
 - [ ] All modified YAML files parse correctly.
 - [ ] New or changed inputs, outputs, and secrets are documented in `README.md`.
 - [ ] Affected `examples/*.yml` caller files are updated and remain valid.

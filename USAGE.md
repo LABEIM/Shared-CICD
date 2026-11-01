@@ -352,7 +352,7 @@ jobs:
       pull-requests: write
       deployments: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Build site
         uses: LABEIM/shared-ci-cd/actions/setup-and-build@v1

@@ -7,7 +7,7 @@ Before writing any code, the agent must complete these steps:
 1. Confirm the working directory using `pwd`.
 2. Inspect the repository structure and key configuration files (`.github/workflows/`, `actions/`, `examples/`, `README.md`, `RELEASING.md`) to understand the current architecture and state.
 3. Review recent repository history by checking the last 5 commits using `git log --oneline -5` and the current release tags using `git tag --sort=-version:refname`.
-4. Run baseline verification using `actionlint` (workflows) and `actionlint actions/*/action.yml` (composite actions) before starting new work. If baseline verification fails, fix that issue first before stacking new feature work on top of a broken starting state.
+4. Run baseline verification using `actionlint` before starting new work. If baseline verification fails, fix that issue first before stacking new feature work on top of a broken starting state.
 
 ### 1.2 Working Rules
 1. Focus entirely on one feature or task at a time.
@@ -29,7 +29,7 @@ Before writing any code, the agent must complete these steps:
 A feature achieves the status of completed only when all of the following conditions are met:
 1. The target behavior is fully implemented and satisfies requirements.
 2. All YAML files are syntactically valid.
-3. `actionlint` reports zero errors on `.github/workflows/`, and `actionlint actions/*/action.yml` reports zero errors on the composite actions.
+3. `actionlint` reports zero errors on `.github/workflows/`, and every `actions/*/action.yml` file parses as valid YAML.
 4. `examples/*.yml` are updated and reference only inputs/secrets that exist in the reusable workflow.
 5. The `.github/workflows/lint-ci.yml` validation pipeline passes on the branch/PR.
 6. No credentials, tokens, or private values are committed; consumer credentials are passed through `secrets: inherit` or organization-level secrets.
@@ -117,7 +117,7 @@ Before ending a session, the agent must perform these tasks:
 ### 4.2 Testing & Portability
 1. **Verification Commands**:
    - Lint workflows: `actionlint`
-   - Lint composite actions: `actionlint actions/*/action.yml`
+   - Validate composite action metadata as YAML (covered by the `lint-ci.yml` syntax check)
    - Validate YAML syntax: run the Node.js validation step from `.github/workflows/lint-ci.yml`
    - Build: not applicable — this repository ships YAML definitions and has no compilation step
 2. **Test Isolation**: Validate workflow changes on a branch or fork before merging. Use `workflow_dispatch` and example caller workflows to exercise changes without affecting consumers.

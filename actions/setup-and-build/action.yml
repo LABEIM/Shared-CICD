@@ -114,7 +114,7 @@ runs:
 
     - name: Setup pnpm (if requested)
       if: steps.detect.outputs.package_manager == 'pnpm'
-      uses: pnpm/action-setup@v4
+      uses: pnpm/action-setup@v5
       with:
         version: latest
 
@@ -126,7 +126,7 @@ runs:
 
     - name: Setup Node.js
       if: steps.detect.outputs.package_manager != 'none' && steps.detect.outputs.package_manager != 'static'
-      uses: actions/setup-node@v4
+      uses: actions/setup-node@v5
       with:
         node-version: ${{ inputs.node_version != 'auto' && inputs.node_version || '' }}
         node-version-file: ${{ (inputs.node_version == 'auto' || inputs.node_version == '') && (hashFiles(format('{0}/.nvmrc', inputs.working_directory), format('{0}/.node-version', inputs.working_directory)) != '' && (hashFiles(format('{0}/.nvmrc', inputs.working_directory)) != '' && format('{0}/.nvmrc', inputs.working_directory) || format('{0}/.node-version', inputs.working_directory)) || '') || '' }}
@@ -535,7 +535,7 @@ runs:
 
     - name: Upload build artifact
       if: inputs.upload_artifact == 'true'
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v6
       with:
         name: ${{ inputs.artifact_name }}
         path: ${{ inputs.working_directory == '.' && format('{0}/', steps.stage_dist.outputs.dist_dir) || format('{0}/{1}/', inputs.working_directory, steps.stage_dist.outputs.dist_dir) }}
