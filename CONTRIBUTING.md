@@ -104,6 +104,15 @@ Ensure you have the required tools installed on your development machine:
 
 3. **Verify YAML syntax:** the same check used by CI runs automatically in [`.github/workflows/lint-ci.yml`](.github/workflows/lint-ci.yml). You can run it through your editor's YAML parser or the Node.js script in that workflow.
 
+> [!NOTE]
+> `deploy-app.yml` references this repository's composite actions with absolute
+> `LABEIM/shared-ci-cd/actions/<name>@v1` refs. A reusable workflow called from
+> another repository cannot use `./actions/*` (that resolves against the caller's
+> checkout), and `uses:` is static — expressions are not allowed. To test action
+> changes before a release, exercise them in this repository with
+> `uses: ./actions/<name>`, or temporarily repoint the workflow's refs to your
+> branch and use a canary consumer (see [RELEASING.md](RELEASING.md)).
+
 There are no application dependencies to install, no build step, and no local dev server.
 
 ---

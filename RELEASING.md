@@ -77,6 +77,9 @@ When fixing bugs, updating action dependencies, or adding optional features:
 
 5. Publish the release notes on GitHub under tag `v1.1.0`.
 
+> [!IMPORTANT]
+> `deploy-app.yml` calls this repository's composite actions at a literal `@v1`. Tag the workflow and action changes in the same commit and move `v1` once; a workflow tested from a branch or exact tag before `v1` moves still resolves the previous actions. To test a release candidate end-to-end, temporarily repoint the workflow's `LABEIM/shared-ci-cd/actions/*@v1` refs to your branch (or a prerelease tag), run a canary consumer at that ref, then restore `@v1` before merging.
+
 > **Result**: All downstream repositories referencing `@v1` will automatically inherit the update on their next workflow run without modifying any code.
 
 ---
