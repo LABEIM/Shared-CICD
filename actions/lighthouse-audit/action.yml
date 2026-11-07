@@ -120,9 +120,11 @@ runs:
       uses: treosh/lighthouse-ci-action@v12
       with:
         configPath: ${{ inputs.config_path }}
+        staticDistDir: ${{ inputs.working_directory == '.' && inputs.dist_dir || format('{0}/{1}', inputs.working_directory, inputs.dist_dir) }}
         uploadArtifacts: true
 
     - name: Parse and format Lighthouse results
+      if: always()
       id: parse_lh
       shell: bash
       working-directory: ${{ inputs.working_directory }}
@@ -224,7 +226,7 @@ runs:
         '
 
     - name: Find existing PR comment
-      if: inputs.append_to_pr == 'true' && github.event_name == 'pull_request'
+      if: always() && inputs.append_to_pr == 'true' && github.event_name == 'pull_request'
       id: find_comment
       continue-on-error: true
       uses: peter-evans/find-comment@v4
@@ -235,7 +237,7 @@ runs:
         body-includes: '<!-- shared-ci-cd:pr-preview -->'
 
     - name: Append Lighthouse results to PR comment
-      if: inputs.append_to_pr == 'true' && github.event_name == 'pull_request' && steps.find_comment.outputs.comment-id != ''
+      if: always() && inputs.append_to_pr == 'true' && github.event_name == 'pull_request' && steps.find_comment.outputs.comment-id != ''
       id: append_comment
       continue-on-error: true
       uses: peter-evans/create-or-update-comment@v5

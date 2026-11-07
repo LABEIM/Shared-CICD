@@ -30,6 +30,10 @@ inputs:
     description: 'Output directory containing built static files (or "auto" to detect standard output folders)'
     required: false
     default: 'dist'
+  project_name:
+    description: 'Project name used in the bootstrap placeholder page (falls back to the repository name)'
+    required: false
+    default: ''
   upload_artifact:
     description: 'Whether to upload the dist directory as a workflow artifact'
     required: false
@@ -232,6 +236,7 @@ runs:
       env:
         BRANCH_NAME: ${{ github.head_ref || github.ref_name }}
         REPO_NAME: ${{ github.repository }}
+        PROJECT_NAME: ${{ inputs.project_name }}
       run: |
         REQ_DIR="${{ inputs.dist_dir }}"
         FINAL_DIR="$REQ_DIR"
@@ -273,7 +278,7 @@ runs:
           FINAL_DIR="dist"
           mkdir -p "$FINAL_DIR"
 
-          DISP_PROJECT="${REPO_NAME#*/}"
+          DISP_PROJECT="${PROJECT_NAME:-${REPO_NAME#*/}}"
           DISP_BRANCH="${BRANCH_NAME:-main}"
 
           cat << HTML_EOF > "${FINAL_DIR}/index.html"

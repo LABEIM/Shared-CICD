@@ -44,4 +44,6 @@ jobs:
         /about
         /contact
 
+    # Build-time config: any inherited secret named PUBLIC_* is exported into
+    # the build environment (e.g. PUBLIC_GOOGLE_SHEET_SCRIPT_URL for Astro).
     secrets: inherit

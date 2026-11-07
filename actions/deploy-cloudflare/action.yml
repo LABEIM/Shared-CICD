@@ -7,8 +7,9 @@ inputs:
     required: false
     default: '.'
   project_name:
-    description: 'Cloudflare Pages project name'
-    required: true
+    description: 'Cloudflare Pages project name (falls back to the repository name; sanitized to lowercase/hyphens)'
+    required: false
+    default: ''
   dist_dir:
     description: 'Directory containing built assets to deploy'
     required: false
@@ -64,6 +65,7 @@ runs:
         INITIAL_RETRY_DELAY: ${{ inputs.retry_delay }}
         RAW_HEAD_REF: ${{ github.head_ref }}
         RAW_REF_NAME: ${{ github.ref_name }}
+        REPO_NAME: ${{ github.repository }}
       run: |
         BRANCH_NAME="${RAW_HEAD_REF:-$RAW_REF_NAME}"
         CLEAN_BRANCH=$(echo "$BRANCH_NAME" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g; s/^-//; s/-$//')
@@ -72,7 +74,10 @@ runs:
           IS_PROD="true"
         fi
 
-        echo "Target Cloudflare Project: $PROJECT_NAME"
+        RESOLVED_PROJECT="${PROJECT_NAME:-${REPO_NAME#*/}}"
+        CLEAN_PROJECT=$(echo "$RESOLVED_PROJECT" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g; s/^-//; s/-$//')
+
+        echo "Target Cloudflare Project: $CLEAN_PROJECT"
         echo "Target Branch: $BRANCH_NAME"
 
         if [ -n "$DEPLOY_HOOK" ]; then
@@ -87,9 +92,9 @@ runs:
           fi
 
           if [ "$IS_PROD" = "true" ]; then
-            DEPLOY_URL="https://${PROJECT_NAME}.pages.dev"
+            DEPLOY_URL="https://${CLEAN_PROJECT}.pages.dev"
           else
-            DEPLOY_URL="https://${CLEAN_BRANCH}.${PROJECT_NAME}.pages.dev"
+            DEPLOY_URL="https://${CLEAN_BRANCH}.${CLEAN_PROJECT}.pages.dev"
           fi
         else
           if [ -z "$CLOUDFLARE_API_TOKEN" ] || [ -z "$CLOUDFLARE_ACCOUNT_ID" ]; then
@@ -110,7 +115,7 @@ runs:
             <head>
             <meta charset="UTF-8">
             <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <title>${CLEAN_BRANCH} — Deployment Active</title>
+            <title>${CLEAN_PROJECT} — Deployment Active</title>
             <meta name="description" content="This project is successfully connected to the LABEIM automated CI/CD pipeline and Cloudflare Pages. Deployment is active and ready for development.">
             <meta name="robots" content="index, follow">
             <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🚀</text></svg>">
@@ -258,12 +263,12 @@ runs:
             <span class="badge-dot"></span>
             <span>Cloudflare Pages &middot; Deployment Active</span>
             </div>
-            <h1>${PROJECT_NAME}</h1>
+            <h1>${CLEAN_PROJECT}</h1>
             <p class="subtitle">This repository is live and successfully connected to the LABEIM automated deployment pipeline. Once your frontend code is pushed, this placeholder will automatically update.</p>
                         <div class="info-grid">
             <div class="info-item">
             <div class="info-label">Project</div>
-            <div class="info-value">${PROJECT_NAME}</div>
+            <div class="info-value">${CLEAN_PROJECT}</div>
             </div>
             <div class="info-item">
             <div class="info-label">Branch</div>
@@ -302,25 +307,25 @@ runs:
             </main>
             </body>
             </html>
-          HTML_EOF
+        HTML_EOF
 
             cp "${DIST_DIR}/index.html" "${DIST_DIR}/404.html"
             echo "/*    /index.html   200" > "${DIST_DIR}/_redirects"
             cat << 'ROBOTS_EOF' > "${DIST_DIR}/robots.txt"
             User-agent: *
             Allow: /
-          ROBOTS_EOF
+        ROBOTS_EOF
           fi
 
           # Auto-create Pages project shell if it does not exist yet
-          npx --yes wrangler pages project create "$PROJECT_NAME" --production-branch="$PROD_BRANCH" > /dev/null 2>&1 || true
+          npx --yes wrangler pages project create "$CLEAN_PROJECT" --production-branch="$PROD_BRANCH" > /dev/null 2>&1 || true
 
           # Deploy with retry logic (exponential backoff)
           RETRY_DELAY=$INITIAL_RETRY_DELAY
           for ATTEMPT in $(seq 1 $MAX_RETRIES); do
             echo "::group::Cloudflare Pages deployment attempt $ATTEMPT/$MAX_RETRIES"
             if npx --yes wrangler pages deploy "$DIST_DIR" \
-              --project-name="$PROJECT_NAME" \
+              --project-name="$CLEAN_PROJECT" \
               --branch="$BRANCH_NAME" \
               --commit-dirty=true 2>&1 | tee cf_deploy.log; then
               echo "::endgroup::"
@@ -347,7 +352,7 @@ runs:
             if [ -n "$PROD_URL" ]; then
               DEPLOY_URL="$PROD_URL"
             else
-              DEPLOY_URL="https://${PROJECT_NAME}.pages.dev"
+              DEPLOY_URL="https://${CLEAN_PROJECT}.pages.dev"
             fi
           else
             if [ -n "$BRANCH_PREVIEW_URL" ]; then
@@ -367,9 +372,9 @@ runs:
           # Fallback 2: construct standard Cloudflare Pages URL pattern
           if [ -z "$DEPLOY_URL" ] || ! echo "$DEPLOY_URL" | grep -q '^https://'; then
             if [ "$IS_PROD" = "true" ]; then
-              DEPLOY_URL="https://${PROJECT_NAME}.pages.dev"
+              DEPLOY_URL="https://${CLEAN_PROJECT}.pages.dev"
             else
-              DEPLOY_URL="https://${CLEAN_BRANCH}.${PROJECT_NAME}.pages.dev"
+              DEPLOY_URL="https://${CLEAN_BRANCH}.${CLEAN_PROJECT}.pages.dev"
             fi
           fi
         fi

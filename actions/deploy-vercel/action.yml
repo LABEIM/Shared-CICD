@@ -23,6 +23,10 @@ inputs:
     description: 'Whether to build remotely on Vercel infrastructure instead of deploying prebuilt output'
     required: false
     default: 'false'
+  prepare_output:
+    description: 'Whether to build .vercel/output from dist_dir (set to false to deploy an existing .vercel/output)'
+    required: false
+    default: 'true'
   max_retries:
     description: 'Maximum retry attempts'
     required: false
@@ -66,7 +70,7 @@ runs:
         npx --yes vercel@latest pull --yes --environment="$ENV_ARG" --token="${{ inputs.vercel_token }}"
 
     - name: Build Vercel Output API structure
-      if: inputs.remote_build != 'true'
+      if: inputs.remote_build != 'true' && inputs.prepare_output == 'true'
       shell: bash
       working-directory: ${{ inputs.working_directory }}
       run: |
