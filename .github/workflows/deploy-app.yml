@@ -268,6 +268,27 @@ jobs:
           echo "Running check command: ${{ inputs.check_command }}"
           ${{ inputs.check_command }}
 
+      - name: Export PUBLIC_* secrets for build
+        shell: bash
+        env:
+          ALL_SECRETS_JSON: ${{ toJSON(secrets) }}
+        run: |
+          set -euo pipefail
+          DELIM="__GH_ENV_$(openssl rand -hex 16)__"
+
+          # Only PUBLIC_* secrets are exported. Never export tokens or
+          # deployment credentials into the build environment.
+          echo "$ALL_SECRETS_JSON" \
+            | jq -r --arg delim "$DELIM" '
+                to_entries[]
+                | select(.key | startswith("PUBLIC_"))
+                | "\(.key)<<\($delim)\n\(.value)\n\($delim)"
+              ' >> "$GITHUB_ENV"
+
+          echo "Exported PUBLIC_* secrets to the build environment:"
+          echo "$ALL_SECRETS_JSON" \
+            | jq -r 'to_entries[] | select(.key | startswith("PUBLIC_")) | .key'
+
       - name: Build static site export
         id: build
         shell: bash

@@ -23,6 +23,7 @@ The framework handles runtime setup, package-manager and output-directory detect
 - [Configuration Reference](#configuration-reference)
   - [Inputs](#inputs)
   - [Secrets](#secrets)
+  - [Build-time environment variables](#build-time-environment-variables)
   - [Caller permissions](#caller-permissions)
   - [Environments](#environments)
 - [Composite Actions](#composite-actions)
@@ -304,6 +305,33 @@ Pass them with `secrets: inherit` (organization/repository secrets) or explicitl
 | `VERCEL_TOKEN` | Vercel | Vercel personal/automation token. |
 
 Never commit these values. Keep `.env`, `.env.local`, and credential files out of the repository.
+
+### Build-time environment variables
+
+When the site is built on the runner (`build_location: github`, the default), every inherited secret whose name starts with `PUBLIC_` is exported into the build environment before the build command runs. The prefix is case-sensitive: nothing else is exported, and the step logs the exported names only, never the values.
+
+This is how callers pass build-time configuration to frameworks that inline environment variables into the static output. GitHub does not allow the `secrets` context inside `with:`, so the values must arrive through `secrets: inherit`:
+
+```yaml
+jobs:
+  deploy:
+    uses: LABEIM/shared-ci-cd/.github/workflows/deploy-app.yml@v1
+    with:
+      cloudflare_project_name: 'my-astro-site'
+    # PUBLIC_GOOGLE_SHEET_SCRIPT_URL, PUBLIC_RECRUITMENT_SECRET, ... are inherited here
+    secrets: inherit
+```
+
+An Astro site can then read them at build time:
+
+```astro
+---
+const sheetUrl = import.meta.env.PUBLIC_GOOGLE_SHEET_SCRIPT_URL;
+---
+```
+
+> [!WARNING]
+> The `PUBLIC_` prefix is only for values intended to ship to the browser. Everything exported this way is inlined into the static output and is readable by every visitor. Never give a token, API key, or deployment credential a `PUBLIC_` name.
 
 ### Caller permissions
 
