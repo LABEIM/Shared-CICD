@@ -283,6 +283,7 @@ All inputs are optional unless noted. All are declared under `with:`.
 | `enable_cloudflare` | boolean | `true` | Deploy to Cloudflare Workers. |
 | `cloudflare_project_name` | string | `''` | Cloudflare Worker name (defaults to the repository name). |
 | `production_branch` | string | `'main'` | Branch treated as production. |
+| `cloudflare_mode` | string | `'auto'` | `'auto'`, `'static'`, or `'ssr'`. `auto` deploys a Worker + assets when `<dist_dir>/server/wrangler.json` exists, otherwise static assets. |
 | `enable_vercel` | boolean | `false` | Deploy to Vercel. |
 | `vercel_project_id` | string | `''` | Vercel project ID (required when Vercel is enabled). |
 | `vercel_org_id` | string | `''` | Vercel organization/team ID (required when Vercel is enabled). |
@@ -366,7 +367,7 @@ Use these directly when you need custom Docker builds, extra gates, or non-stand
 | Action | Purpose | Key inputs | Outputs |
 | :--- | :--- | :--- | :--- |
 | [`actions/setup-and-build`](actions/setup-and-build/action.yml) | Runtime setup, dependency install, check, build, stage output, upload artifact | `node_version`, `package_manager`, `install_command`, `check_command`, `build_command`, `dist_dir`, `project_name`, `artifact_name`, `artifact_retention_days` | `artifact_hash`, `build_duration`, `detected_package_manager`, `resolved_dist_dir` |
-| [`actions/deploy-cloudflare`](actions/deploy-cloudflare/action.yml) | Workers deploy or Deploy Hook trigger, with retries and URL resolution | `project_name` *(optional; defaults to the repository name, sanitized)*, `dist_dir`, `not_found_handling`, `production_branch`, `api_token`, `account_id`, `deploy_hook_url`, `max_retries`, `retry_delay` | `deploy_url`, `is_production` |
+| [`actions/deploy-cloudflare`](actions/deploy-cloudflare/action.yml) | Workers deploy (static assets or Worker + assets) or Deploy Hook trigger, with retries and URL resolution | `project_name` *(optional; defaults to the repository name, sanitized)*, `dist_dir`, `cloudflare_mode`, `not_found_handling`, `production_branch`, `api_token`, `account_id`, `deploy_hook_url`, `max_retries`, `retry_delay` | `deploy_url`, `is_production` |
 | [`actions/deploy-vercel`](actions/deploy-vercel/action.yml) | Build Output API v3 deploy or remote Vercel build | `project_id` *(required)*, `org_id` *(required)*, `vercel_token` *(required)*, `dist_dir`, `remote_build`, `prepare_output`, `max_retries`, `retry_delay` | `deploy_url`, `is_production` |
 | [`actions/pr-preview-comment`](actions/pr-preview-comment/action.yml) | Create or update the single preview comment | `cloudflare_url`, `vercel_url`, `custom_message`, `github_token` | — |
 | [`actions/lighthouse-audit`](actions/lighthouse-audit/action.yml) | Run Lighthouse CI and summarize scores; static audits resolve `dist_dir` under `working_directory` | `target_url`, `routes`, `config_path`, `dist_dir`, `append_to_pr`, `github_token` | `summary_markdown` |
@@ -374,6 +375,8 @@ Use these directly when you need custom Docker builds, extra gates, or non-stand
 The reusable [`deploy-app.yml`](.github/workflows/deploy-app.yml) workflow is composed of these same actions, referenced at `@v2`; workflow and actions move together in a release.
 
 `not_found_handling` controls unmatched paths: `auto` (default) uses `404-page` when `dist_dir/404.html` exists and `single-page-application` otherwise. Set it explicitly to override that guess; any other value fails the step. It applies to direct Wrangler uploads only; remote Workers Builds use the consumer's committed Wrangler config instead. A committed `wrangler.json`/`wrangler.toml` is ignored for direct uploads: the generated config is the whole deployment config.
+
+`cloudflare_mode` selects the deployment shape. `auto` (default) deploys a Worker + assets when `<dist_dir>/server/wrangler.json` exists (emitted by `@astrojs/cloudflare` 14+), otherwise static assets. `ssr` forces the Worker shape and fails if that config is missing; `static` forces assets only. In `ssr` mode `not_found_handling` has no effect (still validated), because unmatched paths must reach the Worker. See [Astro + Keystatic](#astro--keystatic-worker--assets).
 
 A production direct upload serves the Worker at `<sanitized-worker>.<subdomain>.workers.dev`; each pull-request preview serves at `<sanitized-branch>-<sanitized-worker>.<subdomain>.workers.dev`. Direct uploads always set `workers_dev` and `preview_urls`, so a custom domain does not hide that surface.
 
@@ -442,6 +445,71 @@ with:
   build_command: 'npm run build'
   dist_dir: 'dist'
 ```
+
+### Astro + Keystatic (Worker + assets)
+
+Keystatic's admin at `/keystatic` is server-rendered, so the site must deploy as a Worker with static assets, not assets alone. This requires Astro 7 with `@astrojs/cloudflare` 14+, which emits `dist/server/wrangler.json` and the assets in `dist/client`.
+
+Install the runtime dependencies:
+
+```bash
+npm i @astrojs/cloudflare@^14 @astrojs/react react react-dom @keystatic/astro @keystatic/core
+npm i -D @astrojs/check typescript   # required for `npx astro check` in CI
+```
+
+```yaml
+with:
+  package_manager: 'auto'
+  check_command: 'npx astro check'
+  build_command: 'npm run build'
+  dist_dir: 'dist'          # build root, not dist/client
+  cloudflare_mode: 'ssr'    # or 'auto' to detect dist/server/wrangler.json
+  lighthouse_routes: |
+    /
+```
+
+`astro.config.mjs`:
+
+```js
+import cloudflare from '@astrojs/cloudflare';
+import keystatic from '@keystatic/astro';
+import react from '@astrojs/react';
+import { defineConfig } from 'astro/config';
+
+export default defineConfig({
+  output: 'static',
+  session: false,
+  adapter: cloudflare(),
+  integrations: [react(), keystatic()],
+});
+```
+
+`keystatic.config.ts` uses Keystatic Cloud in production and local storage in development:
+
+```ts
+import { config } from '@keystatic/core';
+
+export default config({
+  storage: process.env.NODE_ENV === 'development' ? { kind: 'local' } : { kind: 'cloud' },
+  cloud: { project: 'your-team/your-project' },
+  collections: { /* ... */ },
+});
+```
+
+1. Create a Keystatic Cloud team and project, and connect the repository. The free tier covers up to 3 users.
+2. Deploy with `cloudflare_mode: 'ssr'` (or `auto`) and `dist_dir: 'dist'`.
+3. Open `/keystatic` on the deployed URL.
+
+Keystatic's GitHub storage mode is not supported on Workers by this pipeline (upstream OAuth bug); use Cloud storage.
+
+> [!NOTE]
+> `ssr` deploys the config emitted by `@astrojs/cloudflare`, overriding only the Worker name and preview flags. The adapter's `ASSETS` binding is preserved, so unmatched paths fall through to the Worker. Keystatic Cloud handles authentication; no secrets are added to the Worker.
+
+> [!WARNING]
+> `dist_dir` must be the build root (`dist`). With `auto` or `static`, `dist_dir: 'dist/client'` deploys static assets only and `/keystatic` returns 404 with no warning; with `ssr` it fails before deploying. Forcing `static` on an SSR build also fails, because `dist` would publish `dist/server` as public assets — use `dist_dir: 'dist/client'` if you really want the assets only.
+
+> [!NOTE]
+> `not_found_handling` has no effect in `ssr` mode but is still validated. Astro 5/6 builds that emit `dist/_worker.js` fall back to static under `auto`; forcing `ssr` fails with an adapter error. Keep `/keystatic` out of `lighthouse_routes` (the admin requires authentication). PR previews render the admin, but edits are committed to the branch configured in Keystatic Cloud, not necessarily the PR branch, and content is baked at build time — saved edits reach production only after that branch is pushed and rebuilt. The deploy-hook (Workers Builds) path ignores the generated config, so commit a Wrangler config with `main` and `assets` instead.
 
 ### Next.js
 

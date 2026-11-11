@@ -1,0 +1,50 @@
+# Example: Astro + Keystatic Cloud admin on Cloudflare Workers
+# Requires Astro 7 with @astrojs/cloudflare 14+, which emits dist/server/wrangler.json.
+# Place this in your project repository at: .github/workflows/ci-cd.yml
+
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: write
+  deployments: write
+
+jobs:
+  deploy:
+    # Replace 'my-org/shared-ci-cd' with your actual repository name
+    uses: my-org/shared-ci-cd/.github/workflows/deploy-app.yml@v2
+    with:
+      # Runtime & Build
+      node_version: '22'
+      package_manager: 'auto'
+      build_command: 'npm run build'
+      check_command: 'npx astro check' # requires @astrojs/check + typescript
+      dist_dir: 'dist' # build root, not dist/client
+
+      # Worker + assets so /keystatic works (or 'auto' to detect the adapter config)
+      cloudflare_mode: 'ssr'
+
+      # Target Platforms
+      enable_cloudflare: true
+      cloudflare_project_name: 'my-keystatic-site'
+      enable_vercel: false
+
+      # Audits & Feedback (keep the authenticated admin out of Lighthouse)
+      enable_pr_comment: true
+      enable_lighthouse: true
+      lighthouse_routes: |
+        /
+
+    # Keystatic Cloud handles editor authentication; no CMS secrets are needed.
+    secrets: inherit
