@@ -1,5 +1,5 @@
-name: 'Deploy to Cloudflare Pages'
-description: 'Deploys static assets to Cloudflare Pages via Wrangler with exponential retry and deterministic URL resolution, or triggers remote Cloudflare Pages builds via Deploy Hooks'
+name: 'Deploy to Cloudflare Workers'
+description: 'Deploys static assets to Cloudflare Workers via Wrangler with exponential retry and deterministic URL resolution, or triggers remote Workers Builds via Deploy Hooks'
 
 inputs:
   working_directory:
@@ -7,19 +7,23 @@ inputs:
     required: false
     default: '.'
   project_name:
-    description: 'Cloudflare Pages project name (falls back to the repository name; sanitized to lowercase/hyphens)'
+    description: 'Cloudflare Worker name (falls back to the repository name; sanitized to lowercase/hyphens)'
     required: false
     default: ''
   dist_dir:
     description: 'Directory containing built assets to deploy'
     required: false
     default: 'dist'
+  not_found_handling:
+    description: 'Unmatched-path behavior: "auto" (404-page when <dist_dir>/404.html exists, otherwise single-page-application), or an explicit "single-page-application" / "404-page"'
+    required: false
+    default: 'auto'
   production_branch:
     description: 'Primary production branch name'
     required: false
     default: 'main'
   api_token:
-    description: 'Cloudflare API Token with Pages edit permissions (required for Wrangler direct deploy)'
+    description: 'Cloudflare API Token with Workers Scripts edit permission (required for Wrangler direct deploy)'
     required: false
     default: ''
   account_id:
@@ -27,7 +31,7 @@ inputs:
     required: false
     default: ''
   deploy_hook_url:
-    description: 'Optional Cloudflare Pages Deploy Hook URL to trigger remote Cloudflare build'
+    description: 'Optional Cloudflare Workers Builds Deploy Hook URL to trigger a remote build'
     required: false
     default: ''
   max_retries:
@@ -50,7 +54,7 @@ outputs:
 runs:
   using: 'composite'
   steps:
-    - name: Deploy to Cloudflare Pages
+    - name: Deploy to Cloudflare Workers
       id: deploy
       shell: bash
       working-directory: ${{ inputs.working_directory }}
@@ -60,6 +64,7 @@ runs:
         DEPLOY_HOOK: ${{ inputs.deploy_hook_url }}
         PROJECT_NAME: ${{ inputs.project_name }}
         DIST_DIR: ${{ inputs.dist_dir }}
+        NOT_FOUND_HANDLING: ${{ inputs.not_found_handling }}
         PROD_BRANCH: ${{ inputs.production_branch }}
         MAX_RETRIES: ${{ inputs.max_retries }}
         INITIAL_RETRY_DELAY: ${{ inputs.retry_delay }}
@@ -80,8 +85,17 @@ runs:
         echo "Target Cloudflare Project: $CLEAN_PROJECT"
         echo "Target Branch: $BRANCH_NAME"
 
+        resolve_subdomain() {
+          if [ -z "$CLOUDFLARE_API_TOKEN" ] || [ -z "$CLOUDFLARE_ACCOUNT_ID" ]; then
+            return 1
+          fi
+          curl -sSf -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+            "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/subdomain" \
+            | jq -r '.result.subdomain // empty'
+        }
+
         if [ -n "$DEPLOY_HOOK" ]; then
-          echo "Triggering remote Cloudflare Pages build via Deploy Hook..."
+          echo "Triggering remote Workers Builds build via Deploy Hook..."
           HOOK_RESP=$(curl -s -X POST -w "\n%{http_code}" "$DEPLOY_HOOK")
           HTTP_CODE=$(echo "$HOOK_RESP" | tail -n1)
           if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 300 ]; then
@@ -91,14 +105,18 @@ runs:
             exit 1
           fi
 
-          if [ "$IS_PROD" = "true" ]; then
-            DEPLOY_URL="https://${CLEAN_PROJECT}.pages.dev"
+          if SUBDOMAIN=$(resolve_subdomain) && [ -n "$SUBDOMAIN" ]; then
+            if [ "$IS_PROD" = "true" ]; then
+              DEPLOY_URL="https://${CLEAN_PROJECT}.${SUBDOMAIN}.workers.dev"
+            else
+              DEPLOY_URL="https://${CLEAN_BRANCH}-${CLEAN_PROJECT}.${SUBDOMAIN}.workers.dev"
+            fi
           else
-            DEPLOY_URL="https://${CLEAN_BRANCH}.${CLEAN_PROJECT}.pages.dev"
+            echo "::warning::Cannot resolve the Workers URL for this remote build. Provide api_token and account_id, or treat deploy_url as unset."
           fi
         else
           if [ -z "$CLOUDFLARE_API_TOKEN" ] || [ -z "$CLOUDFLARE_ACCOUNT_ID" ]; then
-            echo "::error::Either deploy_hook_url OR both api_token and account_id must be provided for Cloudflare Pages deployment."
+            echo "::error::Either deploy_hook_url OR both api_token and account_id must be provided for Cloudflare Workers deployment."
             exit 1
           fi
 
@@ -116,7 +134,7 @@ runs:
             <meta charset="UTF-8">
             <meta name="viewport" content="width=device-width, initial-scale=1.0">
             <title>${CLEAN_PROJECT} — Deployment Active</title>
-            <meta name="description" content="This project is successfully connected to the LABEIM automated CI/CD pipeline and Cloudflare Pages. Deployment is active and ready for development.">
+            <meta name="description" content="This project is successfully connected to the LABEIM automated CI/CD pipeline and Cloudflare Workers. Deployment is active and ready for development.">
             <meta name="robots" content="index, follow">
             <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🚀</text></svg>">
             <style>
@@ -261,7 +279,7 @@ runs:
             <div class="card">
             <div class="badge">
             <span class="badge-dot"></span>
-            <span>Cloudflare Pages &middot; Deployment Active</span>
+            <span>Cloudflare Workers &middot; Deployment Active</span>
             </div>
             <h1>${CLEAN_PROJECT}</h1>
             <p class="subtitle">This repository is live and successfully connected to the LABEIM automated deployment pipeline. Once your frontend code is pushed, this placeholder will automatically update.</p>
@@ -276,7 +294,7 @@ runs:
             </div>
             <div class="info-item">
             <div class="info-label">Target Platform</div>
-            <div class="info-value">Cloudflare Pages</div>
+            <div class="info-value">Cloudflare Workers</div>
             </div>
             <div class="info-item">
             <div class="info-label">Pipeline Status</div>
@@ -302,7 +320,7 @@ runs:
             </div>
             </div>
             <footer>
-            <p>LABEIM Shared CI/CD Pipeline &middot; Cloudflare Pages Deployment</p>
+            <p>LABEIM Shared CI/CD Pipeline &middot; Cloudflare Workers Deployment</p>
             </footer>
             </main>
             </body>
@@ -310,24 +328,36 @@ runs:
         HTML_EOF
 
             cp "${DIST_DIR}/index.html" "${DIST_DIR}/404.html"
-            echo "/*    /index.html   200" > "${DIST_DIR}/_redirects"
             cat << 'ROBOTS_EOF' > "${DIST_DIR}/robots.txt"
             User-agent: *
             Allow: /
         ROBOTS_EOF
           fi
 
-          # Auto-create Pages project shell if it does not exist yet
-          npx --yes wrangler pages project create "$CLEAN_PROJECT" --production-branch="$PROD_BRANCH" > /dev/null 2>&1 || true
+          # Explicit routing: Pages guessed SPA vs 404 from the build output.
+          RESOLVED_404="$NOT_FOUND_HANDLING"
+          if [ "$RESOLVED_404" = "auto" ]; then
+            if [ -f "$DIST_DIR/404.html" ]; then RESOLVED_404="404-page"; else RESOLVED_404="single-page-application"; fi
+          elif [ "$RESOLVED_404" != "single-page-application" ] && [ "$RESOLVED_404" != "404-page" ]; then
+            echo "::error::Invalid not_found_handling '$NOT_FOUND_HANDLING'. Use auto, single-page-application, or 404-page."
+            exit 1
+          fi
+          jq -n --arg name "$CLEAN_PROJECT" --arg dir "$DIST_DIR" --arg nf "$RESOLVED_404" \
+            '{name:$name,compatibility_date:"2026-11-01",assets:{directory:$dir,not_found_handling:$nf},workers_dev:true,preview_urls:true,previews:{}}' \
+            > wrangler.runtime.json
+
+          if [ "$IS_PROD" = "true" ]; then
+            DEPLOY_ARGS=(deploy --config wrangler.runtime.json)
+          else
+            DEPLOY_ARGS=(preview --config wrangler.runtime.json \
+              --name "$CLEAN_BRANCH" --worker-name "$CLEAN_PROJECT" --json)
+          fi
 
           # Deploy with retry logic (exponential backoff)
           RETRY_DELAY=$INITIAL_RETRY_DELAY
           for ATTEMPT in $(seq 1 $MAX_RETRIES); do
-            echo "::group::Cloudflare Pages deployment attempt $ATTEMPT/$MAX_RETRIES"
-            if npx --yes wrangler pages deploy "$DIST_DIR" \
-              --project-name="$CLEAN_PROJECT" \
-              --branch="$BRANCH_NAME" \
-              --commit-dirty=true 2>&1 | tee cf_deploy.log; then
+            echo "::group::Cloudflare Workers deployment attempt $ATTEMPT/$MAX_RETRIES"
+            if npx --yes wrangler@4.160.0 "${DEPLOY_ARGS[@]}" 2>&1 | tee cf_deploy.log; then
               echo "::endgroup::"
               echo "Deployment succeeded on attempt $ATTEMPT"
               break
@@ -338,43 +368,31 @@ runs:
               sleep $RETRY_DELAY
               RETRY_DELAY=$((RETRY_DELAY * 2))
             else
-              echo "::error::All $MAX_RETRIES deployment attempts to Cloudflare Pages failed."
+              echo "::error::All $MAX_RETRIES deployment attempts to Cloudflare Workers failed."
               exit 1
             fi
           done
 
-          # Parse wrangler deploy output for canonical Production URL or Branch Preview URL
-          PROD_URL=$(grep -i "Production URL:" cf_deploy.log | grep -oP 'https://[a-zA-Z0-9.-]+\.pages\.dev' | head -1 | tr -cd 'a-zA-Z0-9.:/_-' || true)
-          BRANCH_PREVIEW_URL=$(grep -i "Branch Preview URL:" cf_deploy.log | grep -oP 'https://[a-zA-Z0-9.-]+\.pages\.dev' | head -1 | tr -cd 'a-zA-Z0-9.:/_-' || true)
-
+          # Prefer the host we own; Wrangler also prints version/deployment URLs.
           DEPLOY_URL=""
           if [ "$IS_PROD" = "true" ]; then
-            if [ -n "$PROD_URL" ]; then
-              DEPLOY_URL="$PROD_URL"
-            else
-              DEPLOY_URL="https://${CLEAN_PROJECT}.pages.dev"
-            fi
+            URL_PREFIX="${CLEAN_PROJECT}."
           else
-            if [ -n "$BRANCH_PREVIEW_URL" ]; then
-              DEPLOY_URL="$BRANCH_PREVIEW_URL"
-            fi
+            URL_PREFIX="${CLEAN_BRANCH}-${CLEAN_PROJECT}."
           fi
+          while IFS= read -r CANDIDATE; do
+            case "${CANDIDATE#https://}" in
+              "$URL_PREFIX"*) DEPLOY_URL="$CANDIDATE"; break ;;
+            esac
+          done < <(sed 's/\x1B\[[0-9;]*[a-zA-Z]//g' cf_deploy.log \
+                   | grep -oP 'https://[a-zA-Z0-9.-]+\.workers\.dev' | sort -u || true)
 
-          # Fallback 1: look for general pages.dev/workers.dev URL in logs
-          if [ -z "$DEPLOY_URL" ]; then
-            DEPLOY_URL=$(sed 's/\x1B\[[0-9;]*[a-zA-Z]//g' cf_deploy.log \
-              | grep -oP 'https://[a-zA-Z0-9.-]+\.(pages\.dev|workers\.dev)' \
-              | grep -iv 'dash\.cloudflare\|api\.cloudflare' \
-              | head -1 \
-              | tr -cd 'a-zA-Z0-9.:/_-' || true)
-          fi
-
-          # Fallback 2: construct standard Cloudflare Pages URL pattern
-          if [ -z "$DEPLOY_URL" ] || ! echo "$DEPLOY_URL" | grep -q '^https://'; then
+          # Fallback: resolve the account's workers.dev subdomain from the API.
+          if [ -z "$DEPLOY_URL" ] && SUBDOMAIN=$(resolve_subdomain) && [ -n "$SUBDOMAIN" ]; then
             if [ "$IS_PROD" = "true" ]; then
-              DEPLOY_URL="https://${CLEAN_PROJECT}.pages.dev"
+              DEPLOY_URL="https://${CLEAN_PROJECT}.${SUBDOMAIN}.workers.dev"
             else
-              DEPLOY_URL="https://${CLEAN_BRANCH}.${CLEAN_PROJECT}.pages.dev"
+              DEPLOY_URL="https://${CLEAN_BRANCH}-${CLEAN_PROJECT}.${SUBDOMAIN}.workers.dev"
             fi
           fi
         fi
@@ -394,10 +412,10 @@ runs:
       run: |
         BUILD_TYPE="Direct Upload (Wrangler)"
         if [ -n "$DEPLOY_HOOK" ]; then
-          BUILD_TYPE="Remote (Cloudflare Pages Build Runner)"
+          BUILD_TYPE="Remote (Workers Builds)"
         fi
         {
-          echo "### Cloudflare Pages Deployment"
+          echo "### Cloudflare Workers Deployment"
           echo ""
           echo "| Detail | Value |"
           echo "| :--- | :--- |"
