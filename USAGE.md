@@ -506,7 +506,7 @@ Keystatic's GitHub storage mode is not supported on Workers by this pipeline (up
 > `ssr` deploys the config emitted by `@astrojs/cloudflare`, overriding only the Worker name and preview flags. The adapter's `ASSETS` binding is preserved, so unmatched paths fall through to the Worker. Keystatic Cloud handles authentication; no secrets are added to the Worker.
 
 > [!WARNING]
-> `dist_dir` must be the build root (`dist`). With `auto` or `static`, `dist_dir: 'dist/client'` deploys static assets only and `/keystatic` returns 404 with no warning; with `ssr` it fails before deploying.
+> `dist_dir` must be the build root (`dist`). With `auto` or `static`, `dist_dir: 'dist/client'` deploys static assets only and `/keystatic` returns 404 with no warning; with `ssr` it fails before deploying. Forcing `static` on an SSR build also fails, because `dist` would publish `dist/server` as public assets — use `dist_dir: 'dist/client'` if you really want the assets only.
 
 > [!NOTE]
 > `not_found_handling` has no effect in `ssr` mode but is still validated. Astro 5/6 builds that emit `dist/_worker.js` fall back to static under `auto`; forcing `ssr` fails with an adapter error. Keep `/keystatic` out of `lighthouse_routes` (the admin requires authentication). PR previews render the admin, but edits are committed to the branch configured in Keystatic Cloud, not necessarily the PR branch, and content is baked at build time — saved edits reach production only after that branch is pushed and rebuilt. The deploy-hook (Workers Builds) path ignores the generated config, so commit a Wrangler config with `main` and `assets` instead.

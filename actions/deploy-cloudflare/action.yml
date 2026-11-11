@@ -195,6 +195,10 @@ runs:
             echo "::error::cloudflare_mode is 'ssr' but $SSR_CONFIG was not produced. Use @astrojs/cloudflare 14+ (Astro 7), which emits dist/server/wrangler.json."
             exit 1
           fi
+          if [ "$RESOLVED_MODE" = "static" ] && [ -f "$SSR_CONFIG" ]; then
+            echo "::error::$DIST_DIR contains an SSR build ($SSR_CONFIG was produced). Use cloudflare_mode: 'ssr', or set dist_dir to '$DIST_DIR/client' to deploy the assets only."
+            exit 1
+          fi
           if [ "$RESOLVED_MODE" = "static" ] && { [ ! -d "$DIST_DIR" ] || [ -z "$(ls -A "$DIST_DIR" 2>/dev/null)" ] || [ ! -f "$DIST_DIR/index.html" ]; }; then
             echo "No deployable HTML found in '$DIST_DIR'. Bootstrapping fallback placeholder..."
             mkdir -p "$DIST_DIR"
