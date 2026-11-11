@@ -30,6 +30,7 @@ The framework handles runtime setup, package-manager and output-directory detect
 - [Auxiliary Workflows](#auxiliary-workflows)
 - [Framework Recipes](#framework-recipes)
 - [Troubleshooting](#troubleshooting)
+- [Migrating from v1 (Pages)](#migrating-from-v1-pages)
 - [Versioning & Releases](#versioning--releases)
 
 ---
@@ -241,6 +242,7 @@ with:
 
 > [!IMPORTANT]
 > If `CLOUDFLARE_DEPLOY_HOOK_URL` is configured, the Cloudflare job always uses the hook (remote build) instead of Wrangler — regardless of `build_location`.
+> The hook response carries no deployment URL; `deploy_url` is resolved from the account's `workers.dev` subdomain and is empty when the token or account ID is absent. Workers Builds also needs a committed Wrangler config with the build command and assets directory.
 
 ### No build / prebuilt artifacts
 
@@ -371,9 +373,9 @@ Use these directly when you need custom Docker builds, extra gates, or non-stand
 
 The reusable [`deploy-app.yml`](.github/workflows/deploy-app.yml) workflow is composed of these same actions, referenced at `@v2`; workflow and actions move together in a release.
 
-`not_found_handling` controls unmatched paths: `auto` (default) uses `404-page` when `dist_dir/404.html` exists and `single-page-application` otherwise. Set it explicitly to override that guess. It applies to direct Wrangler uploads only; remote Workers Builds use the consumer's committed Wrangler config instead.
+`not_found_handling` controls unmatched paths: `auto` (default) uses `404-page` when `dist_dir/404.html` exists and `single-page-application` otherwise. Set it explicitly to override that guess; any other value fails the step. It applies to direct Wrangler uploads only; remote Workers Builds use the consumer's committed Wrangler config instead.
 
-Every direct upload also serves the Worker publicly at `<project_name>.<subdomain>.workers.dev`, with previews at `<branch>-<project_name>.<subdomain>.workers.dev`. `workers_dev` and `preview_urls` are always enabled, and a custom domain does not hide that surface.
+A production direct upload serves the Worker at `<sanitized-worker>.<subdomain>.workers.dev`; each pull-request preview serves at `<sanitized-branch>-<sanitized-worker>.<subdomain>.workers.dev`. Direct uploads always set `workers_dev` and `preview_urls`, so a custom domain does not hide that surface.
 
 Example custom pipeline:
 
@@ -533,7 +535,8 @@ Version 2 deploys to Cloudflare Workers instead of Pages. Pages support is remov
 2. Confirm the account's `workers.dev` subdomain is registered and enabled.
 3. Change the workflow ref to `@v2` and deploy `main` once.
 4. Re-point any custom domain from the Pages project to the Worker. The zone must be active on Cloudflare; hostnames on external DNS need Cloudflare for SaaS custom hostnames.
-5. Optionally delete the old Pages project.
+5. If you deploy with `CLOUDFLARE_DEPLOY_HOOK_URL`: create a Workers Builds deploy hook, update the secret, and commit a Wrangler config with the build command and assets directory. A Pages hook will not build the Worker.
+6. Optionally delete the old Pages project.
 
 ## Versioning & Releases
 

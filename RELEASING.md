@@ -59,23 +59,23 @@ When fixing bugs, updating action dependencies, or adding optional features:
    git pull origin main
    ```
 
-2. Tag the new patch or minor version (e.g. `v1.1.0`):
+2. Tag the new patch or minor version (e.g. `v2.1.0`):
    ```bash
-   git tag -a v1.1.0 -m "feat: add support for Bun and update action dependencies"
+   git tag -a v2.1.0 -m "feat: add support for Bun and update action dependencies"
    ```
 
-3. Move the floating `v1` tag to point to the new commit:
+3. Move the floating `v2` tag to point to the new commit:
    ```bash
-   git tag -fa v1 -m "Update v1 to v1.1.0"
+   git tag -fa v2 -m "Update v2 to v2.1.0"
    ```
 
-4. Push the new semantic tag and force-push the floating `v1` tag:
+4. Push the new semantic tag and force-push the floating `v2` tag:
    ```bash
-   git push origin v1.1.0
-   git push origin v1 --force
+   git push origin v2.1.0
+   git push origin v2 --force
    ```
 
-5. Publish the release notes on GitHub under tag `v1.1.0`.
+5. Publish the release notes on GitHub under tag `v2.1.0`.
 
 > [!IMPORTANT]
 > `deploy-app.yml` calls this repository's composite actions at a literal `@v2`. Tag the workflow and action changes in the same commit and move `v2` once; a workflow tested from a branch or exact tag before `v2` moves still resolves the previous actions. To test a release candidate end-to-end, temporarily repoint the workflow's `LABEIM/shared-ci-cd/actions/*@v2` refs to your branch (or a prerelease tag), run a canary consumer at that ref, then restore `@v2` before merging.
