@@ -56,7 +56,7 @@ on:
         type: boolean
         default: true
       cloudflare_project_name:
-        description: 'Cloudflare Worker name'
+        description: 'Cloudflare Worker name (defaults to the repository name)'
         required: false
         type: string
         default: ''
@@ -205,8 +205,9 @@ jobs:
           name: dist-static-build
           path: ${{ inputs.working_directory }}/_dist_assets/
 
+      # Wrangler 4.160 requires Node >= 22.12; the deploy job does not build.
       - name: Setup Node for Wrangler
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@v5
         with:
           node-version: '22'
 
