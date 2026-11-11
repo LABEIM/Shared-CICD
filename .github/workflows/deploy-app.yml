@@ -51,12 +51,12 @@ on:
 
       # Cloudflare Target
       enable_cloudflare:
-        description: 'Enable Cloudflare Pages deployment'
+        description: 'Enable Cloudflare Workers deployment'
         required: false
         type: boolean
         default: true
       cloudflare_project_name:
-        description: 'Cloudflare Pages project name'
+        description: 'Cloudflare Worker name'
         required: false
         type: string
         default: ''
@@ -113,7 +113,7 @@ on:
         description: 'Cloudflare Account ID'
         required: false
       CLOUDFLARE_DEPLOY_HOOK_URL:
-        description: 'Cloudflare Pages Deploy Hook URL for remote Cloudflare builds'
+        description: 'Workers Builds Deploy Hook URL for remote Cloudflare builds'
         required: false
       VERCEL_TOKEN:
         description: 'Vercel Authentication Token'
@@ -138,7 +138,7 @@ jobs:
 
       # The reusable workflow runs in consumer repositories, where `./actions/*` resolves
       # against the consumer's checkout. Reference this repository's actions explicitly and
-      # keep `@v1` in sync with the floating release tag.
+      # keep `@v2` in sync with the floating release tag.
       - name: Export PUBLIC_* secrets for build
         shell: bash
         env:
@@ -162,7 +162,7 @@ jobs:
 
       - name: Setup, build, and upload static app
         id: build
-        uses: LABEIM/shared-ci-cd/actions/setup-and-build@v1
+        uses: LABEIM/shared-ci-cd/actions/setup-and-build@v2
         with:
           working_directory: ${{ inputs.working_directory }}
           project_name: ${{ inputs.cloudflare_project_name }}
@@ -174,10 +174,10 @@ jobs:
           dist_dir: ${{ inputs.dist_dir }}
 
   # ──────────────────────────────────────────────────────────────────────
-  # Stage 2a: Deploy to Cloudflare Pages (Primary / Optional)
+  # Stage 2a: Deploy to Cloudflare Workers (Primary / Optional)
   # ──────────────────────────────────────────────────────────────────────
   deploy-cloudflare:
-    name: Deploy to Cloudflare Pages
+    name: Deploy to Cloudflare Workers
     needs: [validate-and-build]
     if: >-
       inputs.enable_cloudflare == true &&
@@ -205,9 +205,14 @@ jobs:
           name: dist-static-build
           path: ${{ inputs.working_directory }}/_dist_assets/
 
-      - name: Deploy to Cloudflare Pages
+      - name: Setup Node for Wrangler
+        uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+
+      - name: Deploy to Cloudflare Workers
         id: deploy_cf
-        uses: LABEIM/shared-ci-cd/actions/deploy-cloudflare@v1
+        uses: LABEIM/shared-ci-cd/actions/deploy-cloudflare@v2
         with:
           working_directory: ${{ inputs.working_directory }}
           project_name: ${{ inputs.cloudflare_project_name }}
@@ -252,7 +257,7 @@ jobs:
 
       - name: Deploy to Vercel
         id: resolve_url
-        uses: LABEIM/shared-ci-cd/actions/deploy-vercel@v1
+        uses: LABEIM/shared-ci-cd/actions/deploy-vercel@v2
         with:
           working_directory: ${{ inputs.working_directory }}
           project_id: ${{ inputs.vercel_project_id }}
@@ -279,7 +284,7 @@ jobs:
       pull-requests: write
     steps:
       - name: Post or update PR preview comment
-        uses: LABEIM/shared-ci-cd/actions/pr-preview-comment@v1
+        uses: LABEIM/shared-ci-cd/actions/pr-preview-comment@v2
         with:
           cloudflare_url: ${{ needs.deploy-cloudflare.outputs.deploy_url }}
           vercel_url: ${{ needs.deploy-vercel.outputs.deploy_url }}
@@ -313,7 +318,7 @@ jobs:
           path: ${{ inputs.working_directory }}/_dist_assets/
 
       - name: Run Lighthouse audit and report
-        uses: LABEIM/shared-ci-cd/actions/lighthouse-audit@v1
+        uses: LABEIM/shared-ci-cd/actions/lighthouse-audit@v2
         with:
           working_directory: ${{ inputs.working_directory }}
           target_url: ${{ needs.deploy-cloudflare.outputs.deploy_url || needs.deploy-vercel.outputs.deploy_url }}
