@@ -1,5 +1,5 @@
 # Example: Astro + Keystatic Cloud admin on Cloudflare Workers
-# Requires Astro 7 with @astrojs/cloudflare 14+, which emit dist/server/wrangler.json.
+# Requires Astro 7 with @astrojs/cloudflare 14+, which emits dist/server/wrangler.json.
 # Place this in your project repository at: .github/workflows/ci-cd.yml
 
 name: CI/CD Pipeline
@@ -29,7 +29,7 @@ jobs:
       node_version: '22'
       package_manager: 'auto'
       build_command: 'npm run build'
-      check_command: 'npx astro check'
+      check_command: 'npx astro check' # requires @astrojs/check + typescript
       dist_dir: 'dist' # build root, not dist/client
 
       # Worker + assets so /keystatic works (or 'auto' to detect the adapter config)
