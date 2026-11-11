@@ -75,6 +75,10 @@ runs:
       working-directory: ${{ inputs.working_directory }}
       run: |
         DIST="${{ inputs.dist_dir }}"
+        # Astro 7 SSR builds keep the site under client/; serve those prerendered assets.
+        if [ -f "$DIST/server/wrangler.json" ] && [ -d "$DIST/client" ]; then
+          DIST="$DIST/client"
+        fi
         mkdir -p .vercel/output/static
         if [ "$DIST" = "." ] || [ "$DIST" = "./" ]; then
           find . -maxdepth 1 ! -name '.' ! -name '.git' ! -name '.github' ! -name '.vercel' ! -name 'node_modules' ! -name '.lighthouseci' -exec cp -r {} .vercel/output/static/ \;
