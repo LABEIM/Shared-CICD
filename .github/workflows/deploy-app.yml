@@ -65,6 +65,11 @@ on:
         required: false
         type: string
         default: 'main'
+      cloudflare_mode:
+        description: 'Cloudflare deployment shape: "auto", "static", or "ssr"'
+        required: false
+        type: string
+        default: 'auto'
 
       # Vercel Target
       enable_vercel:
@@ -219,6 +224,7 @@ jobs:
           project_name: ${{ inputs.cloudflare_project_name }}
           dist_dir: ${{ (inputs.build_location == 'github' || inputs.build_location == '' || inputs.build_location == 'auto') && '_dist_assets' || inputs.dist_dir }}
           production_branch: ${{ inputs.production_branch }}
+          cloudflare_mode: ${{ inputs.cloudflare_mode }}
           api_token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           account_id: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           deploy_hook_url: ${{ secrets.CLOUDFLARE_DEPLOY_HOOK_URL }}
