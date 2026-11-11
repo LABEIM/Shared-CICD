@@ -78,9 +78,9 @@ When fixing bugs, updating action dependencies, or adding optional features:
 5. Publish the release notes on GitHub under tag `v1.1.0`.
 
 > [!IMPORTANT]
-> `deploy-app.yml` calls this repository's composite actions at a literal `@v1`. Tag the workflow and action changes in the same commit and move `v1` once; a workflow tested from a branch or exact tag before `v1` moves still resolves the previous actions. To test a release candidate end-to-end, temporarily repoint the workflow's `LABEIM/shared-ci-cd/actions/*@v1` refs to your branch (or a prerelease tag), run a canary consumer at that ref, then restore `@v1` before merging.
+> `deploy-app.yml` calls this repository's composite actions at a literal `@v2`. Tag the workflow and action changes in the same commit and move `v2` once; a workflow tested from a branch or exact tag before `v2` moves still resolves the previous actions. To test a release candidate end-to-end, temporarily repoint the workflow's `LABEIM/shared-ci-cd/actions/*@v2` refs to your branch (or a prerelease tag), run a canary consumer at that ref, then restore `@v2` before merging.
 
-> **Result**: All downstream repositories referencing `@v1` will automatically inherit the update on their next workflow run without modifying any code.
+> **Result**: All downstream repositories referencing `@v2` will automatically inherit the update on their next workflow run without modifying any code.
 
 ---
 
@@ -161,4 +161,4 @@ Before tagging and publishing any release, verify:
 - [ ] New inputs/outputs are properly documented in `README.md`.
 - [ ] Example workflows in `examples/` are up to date.
 - [ ] CI validation checks on `main` are green.
-- [ ] Floating major tag (`v1`) has been pushed.
+- [ ] Floating major tag for the release (`v2`) has been pushed.

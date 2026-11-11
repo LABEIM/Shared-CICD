@@ -1,4 +1,4 @@
-# Example: High-Availability Project deploying to BOTH Cloudflare Pages and Vercel
+# Example: High-Availability Project deploying to BOTH Cloudflare Workers and Vercel
 # Place this in your project repository at: .github/workflows/ci-cd.yml
 
 name: Multi-Cloud CI/CD Pipeline
@@ -22,7 +22,7 @@ permissions:
 jobs:
   deploy:
     # Replace 'my-org/shared-ci-cd' with your actual repository name
-    uses: my-org/shared-ci-cd/.github/workflows/deploy-app.yml@v1
+    uses: my-org/shared-ci-cd/.github/workflows/deploy-app.yml@v2
     with:
       # Runtime & Build
       node_version: '22'

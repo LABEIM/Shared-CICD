@@ -23,7 +23,7 @@ permissions:
 jobs:
   deploy:
     # Replace 'my-org/shared-ci-cd' with your actual repository name
-    uses: my-org/shared-ci-cd/.github/workflows/deploy-app.yml@v1
+    uses: my-org/shared-ci-cd/.github/workflows/deploy-app.yml@v2
     with:
       # Target Platforms
       enable_cloudflare: true
