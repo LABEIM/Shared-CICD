@@ -283,6 +283,7 @@ All inputs are optional unless noted. All are declared under `with:`.
 | `enable_cloudflare` | boolean | `true` | Deploy to Cloudflare Workers. |
 | `cloudflare_project_name` | string | `''` | Cloudflare Worker name (defaults to the repository name). |
 | `production_branch` | string | `'main'` | Branch treated as production. |
+| `cloudflare_mode` | string | `'auto'` | `'auto'`, `'static'`, or `'ssr'`. `auto` deploys a Worker + assets when `<dist_dir>/server/wrangler.json` exists, otherwise static assets. |
 | `enable_vercel` | boolean | `false` | Deploy to Vercel. |
 | `vercel_project_id` | string | `''` | Vercel project ID (required when Vercel is enabled). |
 | `vercel_org_id` | string | `''` | Vercel organization/team ID (required when Vercel is enabled). |
@@ -442,6 +443,62 @@ with:
   build_command: 'npm run build'
   dist_dir: 'dist'
 ```
+
+### Astro + Keystatic (Worker + assets)
+
+Keystatic's admin at `/keystatic` is server-rendered, so the site must deploy as a Worker with static assets, not assets alone. This requires Astro 7 with `@astrojs/cloudflare` 14+, which emits `dist/server/wrangler.json` and the assets in `dist/client`.
+
+```yaml
+with:
+  package_manager: 'auto'
+  check_command: 'npx astro check'
+  build_command: 'npm run build'
+  dist_dir: 'dist'          # build root, not dist/client
+  cloudflare_mode: 'ssr'    # or 'auto' to detect dist/server/wrangler.json
+  lighthouse_routes: |
+    /
+```
+
+`astro.config.mjs`:
+
+```js
+import cloudflare from '@astrojs/cloudflare';
+import keystatic from '@keystatic/astro';
+import react from '@astrojs/react';
+import { defineConfig } from 'astro/config';
+
+export default defineConfig({
+  output: 'static',
+  session: false,
+  adapter: cloudflare(),
+  integrations: [react(), keystatic()],
+});
+```
+
+`keystatic.config.ts` uses Keystatic Cloud in production and local storage in development:
+
+```ts
+import { config } from '@keystatic/core';
+
+export default config({
+  storage: process.env.NODE_ENV === 'development' ? { kind: 'local' } : { kind: 'cloud' },
+  cloud: { project: 'your-team/your-project' },
+  collections: { /* ... */ },
+});
+```
+
+1. Create a Keystatic Cloud team and project, and connect the repository. The free tier covers up to 3 users.
+2. Deploy with `cloudflare_mode: 'ssr'` (or `auto`) and `dist_dir: 'dist'`.
+3. Open `/keystatic` on the deployed URL.
+
+> [!NOTE]
+> `ssr` deploys the config emitted by `@astrojs/cloudflare`, overriding only the Worker name and preview flags. The adapter's `ASSETS` binding is preserved, so unmatched paths fall through to the Worker. Keystatic Cloud handles authentication; no secrets are added to the Worker.
+
+> [!WARNING]
+> `dist_dir` must be the build root (`dist`). `dist_dir: 'dist/client'` deploys static assets only and `/keystatic` returns 404 with no warning.
+
+> [!NOTE]
+> `not_found_handling` has no effect in `ssr` mode but is still validated. Astro 5/6 builds that emit `dist/_worker.js` are not supported in `ssr` mode and deploy as static sites. Keep `/keystatic` out of `lighthouse_routes` (the admin requires authentication). PR previews render the admin, but edits are committed to the branch configured in Keystatic Cloud, not necessarily the PR branch. The deploy-hook (Workers Builds) path ignores the generated config, so commit a Wrangler config with `main` and `assets` instead.
 
 ### Next.js
 

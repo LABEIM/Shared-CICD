@@ -1,5 +1,5 @@
 name: 'Deploy to Cloudflare Workers'
-description: 'Deploys static assets to Cloudflare Workers via Wrangler with exponential retry and deterministic URL resolution, or triggers remote Workers Builds via Deploy Hooks'
+description: 'Deploys static assets, or a Worker + assets for Astro 7 SSR builds, to Cloudflare Workers via Wrangler with exponential retry and deterministic URL resolution, or triggers remote Workers Builds via Deploy Hooks'
 
 inputs:
   working_directory:

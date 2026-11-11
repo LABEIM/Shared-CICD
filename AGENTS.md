@@ -56,7 +56,7 @@ Before ending a session, the agent must perform these tasks:
 
 ### 2.2 Directory Layout & Component Roles
 - `actions/setup-and-build/`: Detects package manager and output directory, installs dependencies, runs checks, builds the site, and uploads the dist artifact.
-- `actions/deploy-cloudflare/`: Deploys to Cloudflare Workers via Wrangler or triggers remote Workers Builds via Deploy Hooks, with retries and URL resolution.
+- `actions/deploy-cloudflare/`: Deploys static assets or a Worker + assets (Astro 7 SSR) to Cloudflare Workers via Wrangler, or triggers remote Workers Builds via Deploy Hooks, with retries and URL resolution.
 - `actions/deploy-vercel/`: Deploys prebuilt output via the Build Output API v3 or delegates the build to Vercel remote infrastructure.
 - `actions/pr-preview-comment/`: Posts or updates a single PR comment with live preview links.
 - `actions/lighthouse-audit/`: Runs Lighthouse CI audits and produces parsed scorecard summaries.
