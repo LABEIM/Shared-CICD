@@ -72,15 +72,26 @@ runs:
         RAW_REF_NAME: ${{ github.ref_name }}
         REPO_NAME: ${{ github.repository }}
       run: |
+        set -eo pipefail
         BRANCH_NAME="${RAW_HEAD_REF:-$RAW_REF_NAME}"
         CLEAN_BRANCH=$(echo "$BRANCH_NAME" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g; s/^-//; s/-$//')
         IS_PROD="false"
-        if [ "$BRANCH_NAME" = "$PROD_BRANCH" ] || [ "$CLEAN_BRANCH" = "main" ] || [ "$CLEAN_BRANCH" = "master" ]; then
-          IS_PROD="true"
+        if [ "${GITHUB_EVENT_NAME:-}" != "pull_request" ]; then
+          if [ "$BRANCH_NAME" = "$PROD_BRANCH" ] || [ "$CLEAN_BRANCH" = "main" ] || [ "$CLEAN_BRANCH" = "master" ]; then
+            IS_PROD="true"
+          fi
         fi
 
         RESOLVED_PROJECT="${PROJECT_NAME:-${REPO_NAME#*/}}"
         CLEAN_PROJECT=$(echo "$RESOLVED_PROJECT" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g; s/^-//; s/-$//')
+
+        case "$NOT_FOUND_HANDLING" in
+          auto|single-page-application|404-page) ;;
+          *)
+            echo "::error::Invalid not_found_handling '$NOT_FOUND_HANDLING'. Use auto, single-page-application, or 404-page."
+            exit 1
+            ;;
+        esac
 
         echo "Target Cloudflare Project: $CLEAN_PROJECT"
         echo "Target Branch: $BRANCH_NAME"
@@ -91,25 +102,39 @@ runs:
           fi
           curl -sSf -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
             "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/subdomain" \
-            | jq -r '.result.subdomain // empty'
+            | jq -r '.result.subdomain // empty' | tr -cd 'a-z0-9-'
         }
 
         if [ -n "$DEPLOY_HOOK" ]; then
           echo "Triggering remote Workers Builds build via Deploy Hook..."
-          HOOK_RESP=$(curl -s -X POST -w "\n%{http_code}" "$DEPLOY_HOOK")
-          HTTP_CODE=$(echo "$HOOK_RESP" | tail -n1)
+          HOOK_RESP=$(curl -sS -X POST --proto '=https' --connect-timeout 10 --max-time 30 \
+            -w "\n%{http_code}" "$DEPLOY_HOOK")
+          HTTP_CODE=$(printf '%s\n' "$HOOK_RESP" | tail -n1)
           if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 300 ]; then
             echo "Cloudflare Deploy Hook triggered successfully (HTTP $HTTP_CODE)."
           else
-            echo "::error::Failed to trigger Cloudflare Deploy Hook (HTTP $HTTP_CODE): $HOOK_RESP"
+            echo "::error::Failed to trigger Cloudflare Deploy Hook (HTTP $HTTP_CODE)."
             exit 1
+          fi
+
+          # The hook response names the branch and Worker it actually built.
+          HOOK_BODY=$(printf '%s\n' "$HOOK_RESP" | sed '$d')
+          HOOK_BRANCH=$(printf '%s' "$HOOK_BODY" | jq -r '.branch // empty' 2>/dev/null || true)
+          HOOK_WORKER=$(printf '%s' "$HOOK_BODY" | jq -r '.worker // empty' 2>/dev/null || true)
+          TARGET_BRANCH="${HOOK_BRANCH:-$BRANCH_NAME}"
+          TARGET_WORKER=$(printf '%s' "${HOOK_WORKER:-$CLEAN_PROJECT}" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g; s/^-//; s/-$//')
+          TARGET_CLEAN_BRANCH=$(printf '%s' "$TARGET_BRANCH" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g; s/^-//; s/-$//')
+          if [ "$TARGET_BRANCH" = "$PROD_BRANCH" ] || [ "$TARGET_CLEAN_BRANCH" = "main" ] || [ "$TARGET_CLEAN_BRANCH" = "master" ]; then
+            IS_PROD="true"
+          else
+            IS_PROD="false"
           fi
 
           if SUBDOMAIN=$(resolve_subdomain) && [ -n "$SUBDOMAIN" ]; then
             if [ "$IS_PROD" = "true" ]; then
-              DEPLOY_URL="https://${CLEAN_PROJECT}.${SUBDOMAIN}.workers.dev"
+              DEPLOY_URL="https://${TARGET_WORKER}.${SUBDOMAIN}.workers.dev"
             else
-              DEPLOY_URL="https://${CLEAN_BRANCH}-${CLEAN_PROJECT}.${SUBDOMAIN}.workers.dev"
+              DEPLOY_URL="https://${TARGET_CLEAN_BRANCH}-${TARGET_WORKER}.${SUBDOMAIN}.workers.dev"
             fi
           else
             echo "::warning::Cannot resolve the Workers URL for this remote build. Provide api_token and account_id, or treat deploy_url as unset."
@@ -121,6 +146,21 @@ runs:
           fi
 
           echo "Source Assets Directory: $DIST_DIR"
+
+          WORKSPACE_ROOT="${GITHUB_WORKSPACE:-$PWD}"
+          REAL_DIST=$(realpath -m "$DIST_DIR")
+          REAL_WORKSPACE=$(realpath -m "$WORKSPACE_ROOT")
+          case "$REAL_DIST" in
+            "$REAL_WORKSPACE"/*) ;;
+            *)
+              echo "::error::dist_dir must resolve inside the workspace ($REAL_WORKSPACE); got $DIST_DIR."
+              exit 1
+              ;;
+          esac
+          if [ "$REAL_DIST" = "$REAL_WORKSPACE" ]; then
+            echo "::error::dist_dir cannot be the workspace root."
+            exit 1
+          fi
 
           # Auto-bootstrap fallback if DIST_DIR is missing, empty, or lacks index.html
           if [ ! -d "$DIST_DIR" ] || [ -z "$(ls -A "$DIST_DIR" 2>/dev/null)" ] || [ ! -f "$DIST_DIR/index.html" ]; then
@@ -338,9 +378,6 @@ runs:
           RESOLVED_404="$NOT_FOUND_HANDLING"
           if [ "$RESOLVED_404" = "auto" ]; then
             if [ -f "$DIST_DIR/404.html" ]; then RESOLVED_404="404-page"; else RESOLVED_404="single-page-application"; fi
-          elif [ "$RESOLVED_404" != "single-page-application" ] && [ "$RESOLVED_404" != "404-page" ]; then
-            echo "::error::Invalid not_found_handling '$NOT_FOUND_HANDLING'. Use auto, single-page-application, or 404-page."
-            exit 1
           fi
           jq -n --arg name "$CLEAN_PROJECT" --arg dir "$DIST_DIR" --arg nf "$RESOLVED_404" \
             '{name:$name,compatibility_date:"2026-11-01",assets:{directory:$dir,not_found_handling:$nf},workers_dev:true,preview_urls:true,previews:{}}' \
@@ -395,13 +432,21 @@ runs:
               DEPLOY_URL="https://${CLEAN_BRANCH}-${CLEAN_PROJECT}.${SUBDOMAIN}.workers.dev"
             fi
           fi
+
+          if [ -z "$DEPLOY_URL" ]; then
+            echo "::warning::Could not resolve a workers.dev URL; deploy_url is unset."
+          fi
         fi
 
+        # Only a workers.dev URL may leave this action (PR comments, summaries).
+        case "$DEPLOY_URL" in
+          https://*workers.dev) ;;
+          *) DEPLOY_URL="" ;;
+        esac
+
         echo "Live deployment URL: $DEPLOY_URL"
-        {
-          echo "deploy_url=$DEPLOY_URL"
-          echo "is_production=$IS_PROD"
-        } >> "$GITHUB_OUTPUT"
+        printf 'deploy_url=%s\n' "$DEPLOY_URL" >> "$GITHUB_OUTPUT"
+        printf 'is_production=%s\n' "$IS_PROD" >> "$GITHUB_OUTPUT"
 
     - name: Record Cloudflare deployment summary
       shell: bash
@@ -409,19 +454,22 @@ runs:
       env:
         TARGET_BRANCH: ${{ github.head_ref || github.ref_name }}
         DEPLOY_HOOK: ${{ inputs.deploy_hook_url }}
+        DEPLOY_URL: ${{ steps.deploy.outputs.deploy_url }}
+        IS_PROD: ${{ steps.deploy.outputs.is_production }}
       run: |
         BUILD_TYPE="Direct Upload (Wrangler)"
         if [ -n "$DEPLOY_HOOK" ]; then
           BUILD_TYPE="Remote (Workers Builds)"
         fi
+        if [ "$IS_PROD" = "true" ]; then MODE="Production"; else MODE="Branch Preview"; fi
         {
           echo "### Cloudflare Workers Deployment"
           echo ""
           echo "| Detail | Value |"
           echo "| :--- | :--- |"
-          echo "| URL | ${{ steps.deploy.outputs.deploy_url }} |"
+          echo "| URL | ${DEPLOY_URL} |"
           echo "| Branch | \`${TARGET_BRANCH}\` |"
           echo "| Build Mode | ${BUILD_TYPE} |"
-          echo "| Mode | ${{ steps.deploy.outputs.is_production == 'true' && 'Production' || 'Branch Preview' }} |"
+          echo "| Mode | ${MODE} |"
           echo "| Status | Deployed |"
         } >> "$GITHUB_STEP_SUMMARY"
