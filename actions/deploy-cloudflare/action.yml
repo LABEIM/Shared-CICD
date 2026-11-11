@@ -105,9 +105,11 @@ runs:
             ;;
         esac
 
+        SSR_CONFIG="$DIST_DIR/server/wrangler.json"
+
         case "$CLOUDFLARE_MODE" in
           auto)
-            if [ -f "$DIST_DIR/server/wrangler.json" ]; then
+            if [ -f "$SSR_CONFIG" ]; then
               RESOLVED_MODE="ssr"
             else
               RESOLVED_MODE="static"
@@ -190,7 +192,6 @@ runs:
           esac
 
           # Auto-bootstrap fallback if DIST_DIR is missing, empty, or lacks index.html
-          SSR_CONFIG="$DIST_DIR/server/wrangler.json"
           if [ "$RESOLVED_MODE" = "ssr" ] && [ ! -f "$SSR_CONFIG" ]; then
             echo "::error::cloudflare_mode is 'ssr' but $SSR_CONFIG was not produced. Use @astrojs/cloudflare 14+ (Astro 7), which emits dist/server/wrangler.json."
             exit 1
@@ -411,9 +412,25 @@ runs:
           fi
 
           if [ "$RESOLVED_MODE" = "ssr" ]; then
+            # Direct uploads must not execute build hooks from artifact-supplied config.
+            if jq -e '.build.command // empty' "$SSR_CONFIG" >/dev/null; then
+              echo "::warning::Ignoring build.command from $SSR_CONFIG; direct uploads do not run build commands."
+            fi
+            # Keep server code and assets inside the workspace.
+            while IFS= read -r cfg_path; do
+              [ -z "$cfg_path" ] && continue
+              REAL_CFG_PATH=$(realpath -m "$(dirname "$SSR_CONFIG")/$cfg_path")
+              case "$REAL_CFG_PATH" in
+                "$REAL_WORKSPACE"/?*) ;;
+                *)
+                  echo "::error::$SSR_CONFIG points outside the workspace: $cfg_path"
+                  exit 1
+                  ;;
+              esac
+            done < <(jq -r '.main // empty, (.assets.directory // empty)' "$SSR_CONFIG")
             # Keep the adapter's main/assets/no_bundle/rules/bindings; override only deployment identity.
             jq --arg name "$CLEAN_PROJECT" \
-              '.name = $name | .workers_dev = true | .preview_urls = true' \
+              'del(.build.command, .build.cwd) | .name = $name | .workers_dev = true | .preview_urls = true' \
               "$SSR_CONFIG" > "$DIST_DIR/server/wrangler.runtime.json"
             RUNTIME_CONFIG="$DIST_DIR/server/wrangler.runtime.json"
           else

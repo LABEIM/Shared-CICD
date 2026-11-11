@@ -272,7 +272,7 @@ runs:
 
         # Bootstrap Fallback: If output directory does not exist, is empty, or lacks index.html
         IS_BOOTSTRAP="false"
-        if [ -d "$FINAL_DIR" ] && [ -f "$FINAL_DIR/server/wrangler.json" ]; then
+        if [ -f "$FINAL_DIR/server/wrangler.json" ]; then
           echo "SSR build detected in '$FINAL_DIR'; skipping bootstrap placeholder."
         elif [ ! -d "$FINAL_DIR" ] || [ -z "$(ls -A "$FINAL_DIR" 2>/dev/null)" ] || [ ! -f "$FINAL_DIR/index.html" ]; then
           echo "No deployable index.html or build artifacts found in '$FINAL_DIR'."
