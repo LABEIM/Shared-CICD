@@ -6,7 +6,7 @@
 [![Security Policy](https://img.shields.io/badge/Security-Policy-brightgreen.svg)](SECURITY.md)
 [![Organization](https://img.shields.io/badge/Org-LABEIM-6366f1.svg)](https://eimlab.org)
 
-A production-grade, modular CI/CD framework for web applications: composable GitHub Actions and reusable workflows for multi-cloud deployment to Cloudflare Pages and Vercel, pull-request previews, Lighthouse audits, and security scanning.
+A production-grade, modular CI/CD framework for web applications: composable GitHub Actions and reusable workflows for multi-cloud deployment to Cloudflare Workers and Vercel, pull-request previews, Lighthouse audits, and security scanning.
 
 [**Usage Guide**](USAGE.md) · [**EIM Research Lab**](https://eimlab.org) · [**Report Issue**](https://github.com/LABEIM/Shared-CICD/issues)
 
@@ -16,7 +16,7 @@ A production-grade, modular CI/CD framework for web applications: composable Git
 
 This repository provides shared CI/CD building blocks consumed by LABEIM projects:
 
-- **Composable actions** under `actions/` for runtime setup and builds, Cloudflare Pages and Vercel deployments, pull-request preview comments, and Lighthouse CI audits.
+- **Composable actions** under `actions/` for runtime setup and builds, Cloudflare Workers and Vercel deployments, pull-request preview comments, and Lighthouse CI audits.
 - **Reusable workflows** under `.github/workflows/` for the full deployment pipeline, CodeQL analysis, dependency review, stale issue/PR cleanup, Dependabot auto-merge, and release tag management.
 - **Ready-to-copy examples** under `examples/` covering zero-dependency static sites, framework applications, monorepos, multi-cloud deployments, and remote platform builds.
 - **Build-time configuration** — inherited secrets named `PUBLIC_*` are exported into the build environment (e.g. Astro/Vite `import.meta.env.PUBLIC_*`), so consumer config reaches the static build without `with:` inputs.

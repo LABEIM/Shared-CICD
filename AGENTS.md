@@ -49,14 +49,14 @@ Before ending a session, the agent must perform these tasks:
 - **Configuration Language**: YAML (GitHub Actions syntax)
 - **Scripting**: Bash (`shell: bash`) with `shellcheck`-clean shell code
 - **Validation Tooling**: `actionlint` (via `reviewdog/action-actionlint`), Node.js for YAML syntax checks
-- **Deployment Targets**: Cloudflare Pages (Wrangler direct deploy or Deploy Hooks), Vercel (Build Output API v3 or remote cloud builds)
+- **Deployment Targets**: Cloudflare Workers (Wrangler direct deploy or Deploy Hooks), Vercel (Build Output API v3 or remote cloud builds)
 - **Security & Supply Chain**: CodeQL, dependency review, Dependabot, GitHub secret scanning
 - **Versioning**: Semantic Versioning with floating major tags (`v1`, `v2`, ...)
-- **Runtime & Package Manager**: Node.js `>=20` for validation scripts; no application package manager or lockfile in this repository
+- **Runtime & Package Manager**: Node.js `>=22.12` for the Cloudflare deploy job, `>=20` for validation scripts; no application package manager or lockfile in this repository
 
 ### 2.2 Directory Layout & Component Roles
 - `actions/setup-and-build/`: Detects package manager and output directory, installs dependencies, runs checks, builds the site, and uploads the dist artifact.
-- `actions/deploy-cloudflare/`: Deploys to Cloudflare Pages via Wrangler or triggers remote builds via Deploy Hooks, with retries and URL resolution.
+- `actions/deploy-cloudflare/`: Deploys to Cloudflare Workers via Wrangler or triggers remote Workers Builds via Deploy Hooks, with retries and URL resolution.
 - `actions/deploy-vercel/`: Deploys prebuilt output via the Build Output API v3 or delegates the build to Vercel remote infrastructure.
 - `actions/pr-preview-comment/`: Posts or updates a single PR comment with live preview links.
 - `actions/lighthouse-audit/`: Runs Lighthouse CI audits and produces parsed scorecard summaries.
@@ -71,7 +71,7 @@ Before ending a session, the agent must perform these tasks:
 
 ### 2.4 Service & Business Logic Layer
 - **Workflow Logic**: Implemented as Bash steps inside composite actions and reusable workflows; outputs flow through `$GITHUB_OUTPUT` and job outputs.
-- **External Services & Integrations**: GitHub REST API, Cloudflare API, Vercel API, Cloudflare Pages Deploy Hooks, and Lighthouse CI (`@lhci/cli`).
+- **External Services & Integrations**: GitHub REST API, Cloudflare API, Vercel API, Workers Builds Deploy Hooks, and Lighthouse CI (`@lhci/cli`).
 
 ---
 
@@ -121,7 +121,7 @@ Before ending a session, the agent must perform these tasks:
    - Validate YAML syntax: run the Node.js validation step from `.github/workflows/lint-ci.yml`
    - Build: not applicable — this repository ships YAML definitions and has no compilation step
 2. **Test Isolation**: Validate workflow changes on a branch or fork before merging. Use `workflow_dispatch` and example caller workflows to exercise changes without affecting consumers.
-3. **Consumer Impact**: Because consumers pin a floating major tag (e.g. `@v1`), non-breaking changes must preserve the existing input/secret contract.
+3. **Consumer Impact**: Because consumers pin a floating major tag (e.g. `@v2`), non-breaking changes must preserve the existing input/secret contract.
 
 ### 4.3 Execution Environment
 - **Runners**: GitHub-hosted `ubuntu-latest`.

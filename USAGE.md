@@ -2,9 +2,9 @@
 
 This guide covers deploying with the Shared CI/CD Framework. For the project overview, see [README.md](README.md).
 
-Deploy any static or framework-based web application to **Cloudflare Pages** and/or **Vercel** with a single reusable workflow — or compose the individual actions yourself.
+Deploy any static or framework-based web application to **Cloudflare Workers** and/or **Vercel** with a single reusable workflow — or compose the individual actions yourself.
 
-The framework handles runtime setup, package-manager and output-directory detection, builds, multi-platform deployment, pull-request preview comments, and Lighthouse audits. Consumers add a ~15-line workflow file and inherit every future improvement through the floating `@v1` tag.
+The framework handles runtime setup, package-manager and output-directory detection, builds, multi-platform deployment, pull-request preview comments, and Lighthouse audits. Consumers add a ~15-line workflow file and inherit every future improvement through the floating `@v2` tag.
 
 ---
 
@@ -30,6 +30,7 @@ The framework handles runtime setup, package-manager and output-directory detect
 - [Auxiliary Workflows](#auxiliary-workflows)
 - [Framework Recipes](#framework-recipes)
 - [Troubleshooting](#troubleshooting)
+- [Migrating from v1 (Pages)](#migrating-from-v1-pages)
 - [Versioning & Releases](#versioning--releases)
 
 ---
@@ -55,7 +56,7 @@ Add the secrets once at the **organization** level (recommended) or per reposito
 
 | Secret | Needed when | Notes |
 | :--- | :--- | :--- |
-| `CLOUDFLARE_API_TOKEN` | Deploying to Cloudflare via Wrangler | Token with `Account → Cloudflare Pages → Edit` |
+| `CLOUDFLARE_API_TOKEN` | Deploying to Cloudflare via Wrangler | Token with `Account → Workers Scripts → Edit` |
 | `CLOUDFLARE_ACCOUNT_ID` | Deploying to Cloudflare via Wrangler | 32-character hexadecimal account ID |
 | `CLOUDFLARE_DEPLOY_HOOK_URL` | Remote Cloudflare builds | Optional; when set, it **takes precedence** over Wrangler |
 | `VERCEL_TOKEN` | Deploying to Vercel | Personal or automation token |
@@ -90,7 +91,7 @@ permissions:
 
 jobs:
   deploy:
-    uses: LABEIM/shared-ci-cd/.github/workflows/deploy-app.yml@v1
+    uses: LABEIM/shared-ci-cd/.github/workflows/deploy-app.yml@v2
     with:
       enable_cloudflare: true
       cloudflare_project_name: 'my-web-app'
@@ -128,7 +129,7 @@ flowchart LR
 
 Production vs. preview:
 
-- **Cloudflare** — production when the branch matches `production_branch` (default `main`); `main` and `master` are always treated as production.
+- **Cloudflare** — production when the branch matches `production_branch` (default `main`); `main` and `master` are always treated as production. `pull_request` events are always previews, even from a branch named `main`.
 - **Vercel** — production for every non-`pull_request` event; preview for pull requests.
 
 The build artifact `dist-static-build` is kept for 3 days.
@@ -144,7 +145,7 @@ No `package.json`, no install, no build. The workflow stages root files (or a `p
 ```yaml
 jobs:
   deploy:
-    uses: LABEIM/shared-ci-cd/.github/workflows/deploy-app.yml@v1
+    uses: LABEIM/shared-ci-cd/.github/workflows/deploy-app.yml@v2
     with:
       enable_cloudflare: true
       cloudflare_project_name: 'my-static-site'
@@ -158,7 +159,7 @@ If your files live somewhere non-standard, set `dist_dir` explicitly (for exampl
 ```yaml
 jobs:
   deploy:
-    uses: LABEIM/shared-ci-cd/.github/workflows/deploy-app.yml@v1
+    uses: LABEIM/shared-ci-cd/.github/workflows/deploy-app.yml@v2
     with:
       node_version: '22'
       package_manager: 'auto'
@@ -180,7 +181,7 @@ jobs:
 ```yaml
 jobs:
   deploy:
-    uses: LABEIM/shared-ci-cd/.github/workflows/deploy-app.yml@v1
+    uses: LABEIM/shared-ci-cd/.github/workflows/deploy-app.yml@v2
     with:
       working_directory: 'apps/web'
       package_manager: 'auto'
@@ -200,7 +201,7 @@ Both platforms deploy in parallel from the same build:
 ```yaml
 jobs:
   deploy:
-    uses: LABEIM/shared-ci-cd/.github/workflows/deploy-app.yml@v1
+    uses: LABEIM/shared-ci-cd/.github/workflows/deploy-app.yml@v2
     with:
       package_manager: 'auto'
       dist_dir: 'auto'
@@ -241,6 +242,7 @@ with:
 
 > [!IMPORTANT]
 > If `CLOUDFLARE_DEPLOY_HOOK_URL` is configured, the Cloudflare job always uses the hook (remote build) instead of Wrangler — regardless of `build_location`.
+> The hook response carries no deployment URL; `deploy_url` is resolved from the account's `workers.dev` subdomain and is empty when the token or account ID is absent. Workers Builds also needs a committed Wrangler config with the build command and assets directory.
 
 ### No build / prebuilt artifacts
 
@@ -257,7 +259,7 @@ If the resolved directory is missing, empty, or has no `index.html`, the workflo
 | :--- | :---: | :---: | :---: | :--- |
 | GitHub build | `'github'` (default) | Full build | 0 | Public repos, multi-cloud sync, centralized lockfile verification |
 | Vercel remote | `'vercel'` | ~CLI trigger only | Vercel build minutes | Private repos, SSR/ISR/Edge on Vercel |
-| Cloudflare remote | `'cloudflare'` | Deploy Hook only | Cloudflare free builds | Private repos, Cloudflare Pages git projects |
+| Cloudflare remote | `'cloudflare'` | Deploy Hook only | Cloudflare free builds | Private repos, Workers Builds git projects |
 | No build | `'none'` | Direct upload only | 0 | Vanilla sites, committed/prebuilt artifacts |
 
 ---
@@ -278,8 +280,8 @@ All inputs are optional unless noted. All are declared under `with:`.
 | `check_command` | string | `''` | Optional lint/typecheck command (e.g. `npx astro check`). |
 | `build_command` | string | `'npm run build'` | Build command; `'none'` skips, `'auto'` runs the package `build` script when present. |
 | `dist_dir` | string | `'dist'` | Output directory, or `'auto'` to detect standard folders. |
-| `enable_cloudflare` | boolean | `true` | Deploy to Cloudflare Pages. |
-| `cloudflare_project_name` | string | `''` | Cloudflare Pages project name (defaults to the repository name). |
+| `enable_cloudflare` | boolean | `true` | Deploy to Cloudflare Workers. |
+| `cloudflare_project_name` | string | `''` | Cloudflare Worker name (defaults to the repository name). |
 | `production_branch` | string | `'main'` | Branch treated as production. |
 | `enable_vercel` | boolean | `false` | Deploy to Vercel. |
 | `vercel_project_id` | string | `''` | Vercel project ID (required when Vercel is enabled). |
@@ -299,7 +301,7 @@ Pass them with `secrets: inherit` (organization/repository secrets) or explicitl
 
 | Secret | Required | Description |
 | :--- | :---: | :--- |
-| `CLOUDFLARE_API_TOKEN` | Cloudflare via Wrangler | Token with Cloudflare Pages edit permission. |
+| `CLOUDFLARE_API_TOKEN` | Cloudflare via Wrangler | Token with Workers Scripts edit permission. |
 | `CLOUDFLARE_ACCOUNT_ID` | Cloudflare via Wrangler | Cloudflare account ID. |
 | `CLOUDFLARE_DEPLOY_HOOK_URL` | Cloudflare remote build | Deploy Hook URL; takes precedence over Wrangler. |
 | `VERCEL_TOKEN` | Vercel | Vercel personal/automation token. |
@@ -315,7 +317,7 @@ This is how callers pass build-time configuration to frameworks that inline envi
 ```yaml
 jobs:
   deploy:
-    uses: LABEIM/shared-ci-cd/.github/workflows/deploy-app.yml@v1
+    uses: LABEIM/shared-ci-cd/.github/workflows/deploy-app.yml@v2
     with:
       cloudflare_project_name: 'my-astro-site'
     # PUBLIC_GOOGLE_SHEET_SCRIPT_URL, PUBLIC_RECRUITMENT_SECRET, ... are inherited here
@@ -359,17 +361,21 @@ You can attach protection rules (required reviewers, wait timers, deployment bra
 
 ## Composite Actions
 
-Use these directly when you need custom Docker builds, extra gates, or non-standard deployment steps. All actions are composite; call them from an `ubuntu-latest` job.
+Use these directly when you need custom Docker builds, extra gates, or non-standard deployment steps. All actions are composite; call them from an `ubuntu-latest` job. The Cloudflare action needs `jq`, GNU `grep -P`, `realpath`, and Node >= 22.12 on the runner (`ubuntu-latest` has them all).
 
 | Action | Purpose | Key inputs | Outputs |
 | :--- | :--- | :--- | :--- |
 | [`actions/setup-and-build`](actions/setup-and-build/action.yml) | Runtime setup, dependency install, check, build, stage output, upload artifact | `node_version`, `package_manager`, `install_command`, `check_command`, `build_command`, `dist_dir`, `project_name`, `artifact_name`, `artifact_retention_days` | `artifact_hash`, `build_duration`, `detected_package_manager`, `resolved_dist_dir` |
-| [`actions/deploy-cloudflare`](actions/deploy-cloudflare/action.yml) | Wrangler deploy or Deploy Hook trigger, with retries and URL resolution | `project_name` *(optional; defaults to the repository name, sanitized)*, `dist_dir`, `production_branch`, `api_token`, `account_id`, `deploy_hook_url`, `max_retries`, `retry_delay` | `deploy_url`, `is_production` |
+| [`actions/deploy-cloudflare`](actions/deploy-cloudflare/action.yml) | Workers deploy or Deploy Hook trigger, with retries and URL resolution | `project_name` *(optional; defaults to the repository name, sanitized)*, `dist_dir`, `not_found_handling`, `production_branch`, `api_token`, `account_id`, `deploy_hook_url`, `max_retries`, `retry_delay` | `deploy_url`, `is_production` |
 | [`actions/deploy-vercel`](actions/deploy-vercel/action.yml) | Build Output API v3 deploy or remote Vercel build | `project_id` *(required)*, `org_id` *(required)*, `vercel_token` *(required)*, `dist_dir`, `remote_build`, `prepare_output`, `max_retries`, `retry_delay` | `deploy_url`, `is_production` |
 | [`actions/pr-preview-comment`](actions/pr-preview-comment/action.yml) | Create or update the single preview comment | `cloudflare_url`, `vercel_url`, `custom_message`, `github_token` | — |
 | [`actions/lighthouse-audit`](actions/lighthouse-audit/action.yml) | Run Lighthouse CI and summarize scores; static audits resolve `dist_dir` under `working_directory` | `target_url`, `routes`, `config_path`, `dist_dir`, `append_to_pr`, `github_token` | `summary_markdown` |
 
-The reusable [`deploy-app.yml`](.github/workflows/deploy-app.yml) workflow is composed of these same actions, referenced at `@v1`; workflow and actions move together in a release.
+The reusable [`deploy-app.yml`](.github/workflows/deploy-app.yml) workflow is composed of these same actions, referenced at `@v2`; workflow and actions move together in a release.
+
+`not_found_handling` controls unmatched paths: `auto` (default) uses `404-page` when `dist_dir/404.html` exists and `single-page-application` otherwise. Set it explicitly to override that guess; any other value fails the step. It applies to direct Wrangler uploads only; remote Workers Builds use the consumer's committed Wrangler config instead. A committed `wrangler.json`/`wrangler.toml` is ignored for direct uploads: the generated config is the whole deployment config.
+
+A production direct upload serves the Worker at `<sanitized-worker>.<subdomain>.workers.dev`; each pull-request preview serves at `<sanitized-branch>-<sanitized-worker>.<subdomain>.workers.dev`. Direct uploads always set `workers_dev` and `preview_urls`, so a custom domain does not hide that surface.
 
 Example custom pipeline:
 
@@ -385,7 +391,7 @@ jobs:
       - uses: actions/checkout@v5
 
       - name: Build site
-        uses: LABEIM/shared-ci-cd/actions/setup-and-build@v1
+        uses: LABEIM/shared-ci-cd/actions/setup-and-build@v2
         with:
           package_manager: 'auto'
           build_command: 'npm run build'
@@ -393,7 +399,7 @@ jobs:
 
       - name: Deploy to Cloudflare
         id: cf
-        uses: LABEIM/shared-ci-cd/actions/deploy-cloudflare@v1
+        uses: LABEIM/shared-ci-cd/actions/deploy-cloudflare@v2
         with:
           project_name: 'my-custom-app'
           dist_dir: 'dist'
@@ -402,7 +408,7 @@ jobs:
 
       - name: Post PR comment
         if: github.event_name == 'pull_request'
-        uses: LABEIM/shared-ci-cd/actions/pr-preview-comment@v1
+        uses: LABEIM/shared-ci-cd/actions/pr-preview-comment@v2
         with:
           cloudflare_url: ${{ steps.cf.outputs.deploy_url }}
 ```
@@ -514,19 +520,36 @@ The comment job only runs on `pull_request` events with `enable_pr_comment: true
 Lighthouse audits the Cloudflare URL first, then Vercel, then the static build. Make sure every route in `lighthouse_routes` exists and is publicly reachable; a 404 page will score poorly.
 
 **A deployment ran but the wrong branch is production.**
-Cloudflare treats `main` and `master` as production regardless of `production_branch`. Rename the branch or adjust the workflow if that is not intended.
+Cloudflare treats `main` and `master` as production regardless of `production_branch`, except on `pull_request` events, which are always previews. Rename the branch or adjust the workflow if that is not intended.
+
+**The job is green but `deploy_url` is empty.**
+The Worker URL could not be resolved from the command output or the account's `workers.dev` subdomain. Check that the subdomain is registered, that the token can read Workers Scripts, and that the log contains a `*.workers.dev` URL. Lighthouse falls back to the static build in that case.
+
+**The deploy step fails with `dist_dir must resolve inside the workspace` or `max_retries must be a positive integer`.**
+`dist_dir` must point inside the checked-out repository (not `..`, an absolute path, or the repo root), and `max_retries` must be a positive integer.
 
 **Workflow cannot be called.**
 For private/internal shared repositories, enable **Settings → Actions → General → Access → Accessible from repositories in the organization**.
 
 ---
 
+## Migrating from v1 (Pages)
+
+Version 2 deploys to Cloudflare Workers instead of Pages. Pages support is removed.
+
+1. Confirm no unrelated Worker already uses the name this pipeline derives (Workers and Pages are separate namespaces).
+2. Confirm the account's `workers.dev` subdomain is registered and enabled.
+3. Change the workflow ref to `@v2` and deploy `main` once.
+4. Re-point any custom domain from the Pages project to the Worker. The zone must be active on Cloudflare; hostnames on external DNS need Cloudflare for SaaS custom hostnames.
+5. If you deploy with `CLOUDFLARE_DEPLOY_HOOK_URL`: create a Workers Builds deploy hook, update the secret, and commit a Wrangler config with the build command and assets directory. A Pages hook will not build the Worker.
+6. Optionally delete the old Pages project.
+
 ## Versioning & Releases
 
 Consumers pin the floating major tag:
 
 ```yaml
-uses: LABEIM/shared-ci-cd/.github/workflows/deploy-app.yml@v1
+uses: LABEIM/shared-ci-cd/.github/workflows/deploy-app.yml@v2
 ```
 
-Non-breaking changes update `v1` automatically. Breaking input/secret changes require a new major tag (`v2`). See [`RELEASING.md`](RELEASING.md) for the full procedure and checklist.
+Non-breaking changes update `v2` automatically. Breaking changes — contract or deployment platform — require a new major tag (`v3`). See [`RELEASING.md`](RELEASING.md) for the full procedure and checklist.

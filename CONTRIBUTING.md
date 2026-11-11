@@ -106,7 +106,7 @@ Ensure you have the required tools installed on your development machine:
 
 > [!NOTE]
 > `deploy-app.yml` references this repository's composite actions with absolute
-> `LABEIM/shared-ci-cd/actions/<name>@v1` refs. A reusable workflow called from
+> `LABEIM/shared-ci-cd/actions/<name>@v2` refs. A reusable workflow called from
 > another repository cannot use `./actions/*` (that resolves against the caller's
 > checkout), and `uses:` is static — expressions are not allowed. To test action
 > changes before a release, exercise them in this repository with

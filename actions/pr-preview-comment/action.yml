@@ -3,7 +3,7 @@ description: 'Posts or updates a GitHub PR comment with live preview deployment 
 
 inputs:
   cloudflare_url:
-    description: 'Cloudflare Pages preview URL'
+    description: 'Cloudflare Workers preview URL'
     required: false
     default: ''
   vercel_url:
@@ -48,7 +48,7 @@ runs:
           echo "| :--- | :--- | :---: |"
 
           if [ -n "$CF_CLEAN" ]; then
-            echo "| **Cloudflare Pages** | [$CF_CLEAN]($CF_CLEAN) | Live |"
+            echo "| **Cloudflare Workers** | [$CF_CLEAN]($CF_CLEAN) | Live |"
           fi
 
           if [ -n "$VERCEL_CLEAN" ]; then

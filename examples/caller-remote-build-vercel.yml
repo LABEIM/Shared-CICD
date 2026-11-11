@@ -22,7 +22,7 @@ permissions:
 jobs:
   deploy:
     # Replace 'my-org/shared-ci-cd' with your actual shared repository name
-    uses: my-org/shared-ci-cd/.github/workflows/deploy-app.yml@v1
+    uses: my-org/shared-ci-cd/.github/workflows/deploy-app.yml@v2
     with:
       # Build Strategy: Delegate compilation to Vercel Cloud Build infrastructure.
       # Bypasses local 'validate-and-build' job on GitHub Actions runner (saves 100% of GitHub build minutes!)
