@@ -15,7 +15,11 @@ inputs:
     required: false
     default: 'dist'
   not_found_handling:
-    description: 'Unmatched-path behavior: "auto" (404-page when <dist_dir>/404.html exists, otherwise single-page-application), or an explicit "single-page-application" / "404-page"'
+    description: 'Unmatched-path behavior: "auto" (404-page when <dist_dir>/404.html exists, otherwise single-page-application), or an explicit "single-page-application" / "404-page". Ignored in ssr mode.'
+    required: false
+    default: 'auto'
+  cloudflare_mode:
+    description: 'Deployment shape: "auto" (SSR when <dist_dir>/server/wrangler.json exists, otherwise static assets), "static", or "ssr"'
     required: false
     default: 'auto'
   production_branch:
@@ -65,6 +69,7 @@ runs:
         PROJECT_NAME: ${{ inputs.project_name }}
         DIST_DIR: ${{ inputs.dist_dir }}
         NOT_FOUND_HANDLING: ${{ inputs.not_found_handling }}
+        CLOUDFLARE_MODE: ${{ inputs.cloudflare_mode }}
         PROD_BRANCH: ${{ inputs.production_branch }}
         MAX_RETRIES: ${{ inputs.max_retries }}
         INITIAL_RETRY_DELAY: ${{ inputs.retry_delay }}
@@ -100,6 +105,21 @@ runs:
             ;;
         esac
 
+        case "$CLOUDFLARE_MODE" in
+          auto)
+            if [ -f "$DIST_DIR/server/wrangler.json" ]; then
+              RESOLVED_MODE="ssr"
+            else
+              RESOLVED_MODE="static"
+            fi
+            ;;
+          static|ssr) RESOLVED_MODE="$CLOUDFLARE_MODE" ;;
+          *)
+            echo "::error::Invalid cloudflare_mode '$CLOUDFLARE_MODE'. Use auto, static, or ssr."
+            exit 1
+            ;;
+        esac
+
         echo "Target Cloudflare Worker: $CLEAN_PROJECT"
         echo "Target Branch: $BRANCH_NAME"
 
@@ -124,6 +144,9 @@ runs:
           HTTP_CODE=$(printf '%s\n' "$HOOK_RESP" | tail -n1)
           if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 300 ]; then
             echo "Cloudflare Deploy Hook triggered successfully (HTTP $HTTP_CODE)."
+            if [ "$RESOLVED_MODE" = "ssr" ]; then
+              echo "::warning::cloudflare_mode=ssr is ignored on the deploy-hook path; Workers Builds uses the consumer's committed Wrangler config."
+            fi
           else
             echo "::error::Failed to trigger Cloudflare Deploy Hook (HTTP $HTTP_CODE)."
             exit 1
@@ -167,7 +190,12 @@ runs:
           esac
 
           # Auto-bootstrap fallback if DIST_DIR is missing, empty, or lacks index.html
-          if [ ! -d "$DIST_DIR" ] || [ -z "$(ls -A "$DIST_DIR" 2>/dev/null)" ] || [ ! -f "$DIST_DIR/index.html" ]; then
+          SSR_CONFIG="$DIST_DIR/server/wrangler.json"
+          if [ "$RESOLVED_MODE" = "ssr" ] && [ ! -f "$SSR_CONFIG" ]; then
+            echo "::error::cloudflare_mode is 'ssr' but $SSR_CONFIG was not produced. Use @astrojs/cloudflare 14+ (Astro 7), which emits dist/server/wrangler.json."
+            exit 1
+          fi
+          if [ "$RESOLVED_MODE" = "static" ] && { [ ! -d "$DIST_DIR" ] || [ -z "$(ls -A "$DIST_DIR" 2>/dev/null)" ] || [ ! -f "$DIST_DIR/index.html" ]; }; then
             echo "No deployable HTML found in '$DIST_DIR'. Bootstrapping fallback placeholder..."
             mkdir -p "$DIST_DIR"
 
@@ -378,19 +406,28 @@ runs:
         ROBOTS_EOF
           fi
 
-          # Explicit routing: Pages guessed SPA vs 404 from the build output.
-          RESOLVED_404="$NOT_FOUND_HANDLING"
-          if [ "$RESOLVED_404" = "auto" ]; then
-            if [ -f "$DIST_DIR/404.html" ]; then RESOLVED_404="404-page"; else RESOLVED_404="single-page-application"; fi
+          if [ "$RESOLVED_MODE" = "ssr" ]; then
+            # Keep the adapter's main/assets/no_bundle/rules/bindings; override only deployment identity.
+            jq --arg name "$CLEAN_PROJECT" \
+              '.name = $name | .workers_dev = true | .preview_urls = true' \
+              "$SSR_CONFIG" > "$DIST_DIR/server/wrangler.runtime.json"
+            RUNTIME_CONFIG="$DIST_DIR/server/wrangler.runtime.json"
+          else
+            # Explicit routing: Pages guessed SPA vs 404 from the build output.
+            RESOLVED_404="$NOT_FOUND_HANDLING"
+            if [ "$RESOLVED_404" = "auto" ]; then
+              if [ -f "$DIST_DIR/404.html" ]; then RESOLVED_404="404-page"; else RESOLVED_404="single-page-application"; fi
+            fi
+            jq -n --arg name "$CLEAN_PROJECT" --arg dir "$DIST_DIR" --arg nf "$RESOLVED_404" \
+              '{name:$name,compatibility_date:"2026-11-01",assets:{directory:$dir,not_found_handling:$nf},workers_dev:true,preview_urls:true,previews:{}}' \
+              > wrangler.runtime.json
+            RUNTIME_CONFIG="wrangler.runtime.json"
           fi
-          jq -n --arg name "$CLEAN_PROJECT" --arg dir "$DIST_DIR" --arg nf "$RESOLVED_404" \
-            '{name:$name,compatibility_date:"2026-11-01",assets:{directory:$dir,not_found_handling:$nf},workers_dev:true,preview_urls:true,previews:{}}' \
-            > wrangler.runtime.json
 
           if [ "$IS_PROD" = "true" ]; then
-            DEPLOY_ARGS=(deploy --config wrangler.runtime.json)
+            DEPLOY_ARGS=(deploy --config "$RUNTIME_CONFIG")
           else
-            DEPLOY_ARGS=(preview --config wrangler.runtime.json \
+            DEPLOY_ARGS=(preview --config "$RUNTIME_CONFIG" \
               --name "$CLEAN_BRANCH" --worker-name "$CLEAN_PROJECT" --json)
           fi
 
