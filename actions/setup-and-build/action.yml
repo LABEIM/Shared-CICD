@@ -288,7 +288,7 @@ runs:
           <meta charset="UTF-8">
           <meta name="viewport" content="width=device-width, initial-scale=1.0">
           <title>${DISP_PROJECT} — Deployment Active</title>
-          <meta name="description" content="This project is successfully connected to the LABEIM automated CI/CD pipeline and Cloudflare Pages. Deployment is active and ready for development.">
+          <meta name="description" content="This project is successfully connected to the LABEIM automated CI/CD pipeline and Cloudflare Workers. Deployment is active and ready for development.">
           <meta name="robots" content="index, follow">
           <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🚀</text></svg>">
           <style>
@@ -457,7 +457,7 @@ runs:
           <div class="card">
           <div class="badge">
           <span class="badge-dot"></span>
-          <span>Cloudflare Pages &middot; Deployment Active</span>
+          <span>Cloudflare Workers &middot; Deployment Active</span>
           </div>
           <h1>${DISP_PROJECT}</h1>
           <p class="subtitle">This repository is live and successfully connected to the LABEIM automated deployment pipeline. Once your frontend code is pushed, this placeholder will automatically update.</p>
@@ -472,7 +472,7 @@ runs:
           </div>
           <div class="info-item">
           <div class="info-label">Target Platform</div>
-          <div class="info-value">Cloudflare Pages</div>
+          <div class="info-value">Cloudflare Workers</div>
           </div>
           <div class="info-item">
           <div class="info-label">Pipeline Status</div>
@@ -498,7 +498,7 @@ runs:
           </div>
           </div>
           <footer>
-          <p>LABEIM Shared CI/CD Pipeline &middot; Cloudflare Pages Deployment</p>
+          <p>LABEIM Shared CI/CD Pipeline &middot; Cloudflare Workers Deployment</p>
           </footer>
           </main>
           </body>
@@ -506,7 +506,6 @@ runs:
         HTML_EOF
 
           cp "${FINAL_DIR}/index.html" "${FINAL_DIR}/404.html"
-          echo "/*    /index.html   200" > "${FINAL_DIR}/_redirects"
           cat << 'ROBOTS_EOF' > "${FINAL_DIR}/robots.txt"
           User-agent: *
           Allow: /
