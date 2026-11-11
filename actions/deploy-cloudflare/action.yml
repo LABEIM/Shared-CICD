@@ -419,6 +419,12 @@ runs:
             # Keep server code and assets inside the workspace.
             while IFS= read -r cfg_path; do
               [ -z "$cfg_path" ] && continue
+              case "$cfg_path" in
+                /*)
+                  echo "::error::$SSR_CONFIG points outside the workspace: $cfg_path"
+                  exit 1
+                  ;;
+              esac
               REAL_CFG_PATH=$(realpath -m "$(dirname "$SSR_CONFIG")/$cfg_path")
               case "$REAL_CFG_PATH" in
                 "$REAL_WORKSPACE"/?*) ;;
