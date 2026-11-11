@@ -10,10 +10,10 @@ This repository follows [Semantic Versioning 2.0.0](https://semver.org/) (`vMAJO
 
 | Version Tag Type | Example | When to Use | Downstream Impact |
 | :--- | :--- | :--- | :--- |
-| **Major (`vX.0.0` / `vX`)** | `v2.0.0`, `v2` | Breaking changes (e.g. removing inputs, changing mandatory secrets, restructuring outputs) | Requires manual updates in consumer workflows (`@v2`) |
-| **Minor (`vX.Y.0`)** | `v1.1.0` | New backwards-compatible features (e.g. new optional inputs, new composite actions) | Automatically inherited by consumers pinned to `@v1` |
-| **Patch (`vX.Y.Z`)** | `v1.0.1` | Bug fixes, dependency updates, retry improvements | Automatically inherited by consumers pinned to `@v1` |
-| **Floating Tag (`vX`)** | `v1` | Pointers to the latest non-breaking release in the major series | Always references the latest stable `v1.x.x` |
+| **Major (`vX.0.0` / `vX`)** | `v2.0.0`, `v2` | Breaking changes (e.g. removing inputs, changing mandatory secrets, restructuring outputs, or changing the deployment platform) | Requires manual updates in consumer workflows (`@v2`) |
+| **Minor (`vX.Y.0`)** | `v2.1.0` | New backwards-compatible features (e.g. new optional inputs, new composite actions) | Automatically inherited by consumers pinned to `@v2` |
+| **Patch (`vX.Y.Z`)** | `v2.0.1` | Bug fixes, dependency updates, retry improvements | Automatically inherited by consumers pinned to `@v2` |
+| **Floating Tag (`vX`)** | `v2` | Pointers to the latest non-breaking release in the major series | Always references the latest stable `v2.x.x` |
 
 ---
 
@@ -96,7 +96,7 @@ When making breaking changes (e.g. altering required parameters or dropping supp
 
 2. Create the new major semantic tag and the new `v2` floating tag:
    ```bash
-   git tag -a v2.0.0 -m "feat!: major overhaul of pipeline outputs and inputs"
+   git tag -a v2.0.0 -m "feat!: deploy to Cloudflare Workers static assets (Pages removed)"
    git tag -fa v2 -m "Release v2"
    ```
 
@@ -117,7 +117,7 @@ When making breaking changes (e.g. altering required parameters or dropping supp
 
 ## 3. Automated Tag Management (Optional)
 
-To automate updating the floating major tag (`v1`) whenever you publish a release via the GitHub Web UI, you can add `.github/workflows/release-tagger.yml`:
+To automate updating the floating major tag (`v2`) whenever you publish a release via the GitHub Web UI, you can add `.github/workflows/release-tagger.yml`:
 
 ```yaml
 name: Release Tag Manager

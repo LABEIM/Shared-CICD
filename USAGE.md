@@ -129,7 +129,7 @@ flowchart LR
 
 Production vs. preview:
 
-- **Cloudflare** — production when the branch matches `production_branch` (default `main`); `main` and `master` are always treated as production.
+- **Cloudflare** — production when the branch matches `production_branch` (default `main`); `main` and `master` are always treated as production. `pull_request` events are always previews, even from a branch named `main`.
 - **Vercel** — production for every non-`pull_request` event; preview for pull requests.
 
 The build artifact `dist-static-build` is kept for 3 days.
@@ -361,7 +361,7 @@ You can attach protection rules (required reviewers, wait timers, deployment bra
 
 ## Composite Actions
 
-Use these directly when you need custom Docker builds, extra gates, or non-standard deployment steps. All actions are composite; call them from an `ubuntu-latest` job.
+Use these directly when you need custom Docker builds, extra gates, or non-standard deployment steps. All actions are composite; call them from an `ubuntu-latest` job. The Cloudflare action needs `jq`, GNU `grep -P`, `realpath`, and Node >= 22.12 on the runner (`ubuntu-latest` has them all).
 
 | Action | Purpose | Key inputs | Outputs |
 | :--- | :--- | :--- | :--- |
@@ -373,7 +373,7 @@ Use these directly when you need custom Docker builds, extra gates, or non-stand
 
 The reusable [`deploy-app.yml`](.github/workflows/deploy-app.yml) workflow is composed of these same actions, referenced at `@v2`; workflow and actions move together in a release.
 
-`not_found_handling` controls unmatched paths: `auto` (default) uses `404-page` when `dist_dir/404.html` exists and `single-page-application` otherwise. Set it explicitly to override that guess; any other value fails the step. It applies to direct Wrangler uploads only; remote Workers Builds use the consumer's committed Wrangler config instead.
+`not_found_handling` controls unmatched paths: `auto` (default) uses `404-page` when `dist_dir/404.html` exists and `single-page-application` otherwise. Set it explicitly to override that guess; any other value fails the step. It applies to direct Wrangler uploads only; remote Workers Builds use the consumer's committed Wrangler config instead. A committed `wrangler.json`/`wrangler.toml` is ignored for direct uploads: the generated config is the whole deployment config.
 
 A production direct upload serves the Worker at `<sanitized-worker>.<subdomain>.workers.dev`; each pull-request preview serves at `<sanitized-branch>-<sanitized-worker>.<subdomain>.workers.dev`. Direct uploads always set `workers_dev` and `preview_urls`, so a custom domain does not hide that surface.
 
@@ -546,4 +546,4 @@ Consumers pin the floating major tag:
 uses: LABEIM/shared-ci-cd/.github/workflows/deploy-app.yml@v2
 ```
 
-Non-breaking changes update `v2` automatically. Breaking input/secret changes require a new major tag (`v3`). See [`RELEASING.md`](RELEASING.md) for the full procedure and checklist.
+Non-breaking changes update `v2` automatically. Breaking changes — contract or deployment platform — require a new major tag (`v3`). See [`RELEASING.md`](RELEASING.md) for the full procedure and checklist.

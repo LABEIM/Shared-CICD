@@ -12,7 +12,7 @@ We actively provide security patches, dependency updates, and vulnerability fixe
 | :--- | :---: | :--- |
 | `main` | :white_check_mark: | Actively maintained with the latest security fixes |
 
-Consumers pin the floating major tag (`v1`), which always points to the latest supported `v1.x.x` release.
+Consumers pin the floating major tag (`v2`), which always points to the latest supported `v2.x.x` release.
 
 ---
 
