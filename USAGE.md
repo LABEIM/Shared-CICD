@@ -520,7 +520,13 @@ The comment job only runs on `pull_request` events with `enable_pr_comment: true
 Lighthouse audits the Cloudflare URL first, then Vercel, then the static build. Make sure every route in `lighthouse_routes` exists and is publicly reachable; a 404 page will score poorly.
 
 **A deployment ran but the wrong branch is production.**
-Cloudflare treats `main` and `master` as production regardless of `production_branch`. Rename the branch or adjust the workflow if that is not intended.
+Cloudflare treats `main` and `master` as production regardless of `production_branch`, except on `pull_request` events, which are always previews. Rename the branch or adjust the workflow if that is not intended.
+
+**The job is green but `deploy_url` is empty.**
+The Worker URL could not be resolved from the command output or the account's `workers.dev` subdomain. Check that the subdomain is registered, that the token can read Workers Scripts, and that the log contains a `*.workers.dev` URL. Lighthouse falls back to the static build in that case.
+
+**The deploy step fails with `dist_dir must resolve inside the workspace` or `max_retries must be a positive integer`.**
+`dist_dir` must point inside the checked-out repository (not `..`, an absolute path, or the repo root), and `max_retries` must be a positive integer.
 
 **Workflow cannot be called.**
 For private/internal shared repositories, enable **Settings → Actions → General → Access → Accessible from repositories in the organization**.

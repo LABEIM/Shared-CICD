@@ -100,7 +100,7 @@ runs:
             ;;
         esac
 
-        echo "Target Cloudflare Project: $CLEAN_PROJECT"
+        echo "Target Cloudflare Worker: $CLEAN_PROJECT"
         echo "Target Branch: $BRANCH_NAME"
 
         resolve_subdomain() {
@@ -110,6 +110,11 @@ runs:
           curl -sSf -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
             "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/subdomain" \
             | jq -r '.result.subdomain // empty' | tr -cd 'a-z0-9-'
+        }
+
+        # workers.dev label: <worker> for production, <branch>-<worker> for previews.
+        workers_host() {
+          if [ "$IS_PROD" = "true" ]; then printf '%s' "$1"; else printf '%s-%s' "$2" "$1"; fi
         }
 
         if [ -n "$DEPLOY_HOOK" ]; then
@@ -138,11 +143,7 @@ runs:
           fi
 
           if SUBDOMAIN=$(resolve_subdomain) && [ -n "$SUBDOMAIN" ]; then
-            if [ "$IS_PROD" = "true" ]; then
-              DEPLOY_URL="https://${TARGET_WORKER}.${SUBDOMAIN}.workers.dev"
-            else
-              DEPLOY_URL="https://${TARGET_CLEAN_BRANCH}-${TARGET_WORKER}.${SUBDOMAIN}.workers.dev"
-            fi
+            DEPLOY_URL="https://$(workers_host "$TARGET_WORKER" "$TARGET_CLEAN_BRANCH").${SUBDOMAIN}.workers.dev"
           else
             echo "::warning::Cannot resolve the Workers URL for this remote build. Provide api_token and account_id, or treat deploy_url as unset."
           fi
@@ -158,16 +159,12 @@ runs:
           REAL_DIST=$(realpath -m "$DIST_DIR")
           REAL_WORKSPACE=$(realpath -m "$WORKSPACE_ROOT")
           case "$REAL_DIST" in
-            "$REAL_WORKSPACE"/*) ;;
+            "$REAL_WORKSPACE"/?*) ;;
             *)
-              echo "::error::dist_dir must resolve inside the workspace ($REAL_WORKSPACE); got $DIST_DIR."
+              echo "::error::dist_dir must resolve inside the workspace ($REAL_WORKSPACE) and not be its root; got $DIST_DIR."
               exit 1
               ;;
           esac
-          if [ "$REAL_DIST" = "$REAL_WORKSPACE" ]; then
-            echo "::error::dist_dir cannot be the workspace root."
-            exit 1
-          fi
 
           # Auto-bootstrap fallback if DIST_DIR is missing, empty, or lacks index.html
           if [ ! -d "$DIST_DIR" ] || [ -z "$(ls -A "$DIST_DIR" 2>/dev/null)" ] || [ ! -f "$DIST_DIR/index.html" ]; then
@@ -420,11 +417,7 @@ runs:
 
           # Prefer the host we own; Wrangler also prints version/deployment URLs.
           DEPLOY_URL=""
-          if [ "$IS_PROD" = "true" ]; then
-            URL_PREFIX="${CLEAN_PROJECT}."
-          else
-            URL_PREFIX="${CLEAN_BRANCH}-${CLEAN_PROJECT}."
-          fi
+          URL_PREFIX="$(workers_host "$CLEAN_PROJECT" "$CLEAN_BRANCH")."
           while IFS= read -r CANDIDATE; do
             case "${CANDIDATE#https://}" in
               "$URL_PREFIX"*) DEPLOY_URL="$CANDIDATE"; break ;;
@@ -434,11 +427,7 @@ runs:
 
           # Fallback: resolve the account's workers.dev subdomain from the API.
           if [ -z "$DEPLOY_URL" ] && SUBDOMAIN=$(resolve_subdomain) && [ -n "$SUBDOMAIN" ]; then
-            if [ "$IS_PROD" = "true" ]; then
-              DEPLOY_URL="https://${CLEAN_PROJECT}.${SUBDOMAIN}.workers.dev"
-            else
-              DEPLOY_URL="https://${CLEAN_BRANCH}-${CLEAN_PROJECT}.${SUBDOMAIN}.workers.dev"
-            fi
+            DEPLOY_URL="https://$(workers_host "$CLEAN_PROJECT" "$CLEAN_BRANCH").${SUBDOMAIN}.workers.dev"
           fi
 
           if [ -z "$DEPLOY_URL" ]; then
