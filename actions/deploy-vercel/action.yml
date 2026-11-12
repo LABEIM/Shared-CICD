@@ -47,6 +47,9 @@ outputs:
   is_production:
     description: 'Whether this was a production deployment'
     value: ${{ steps.deploy.outputs.is_production }}
+  used_placeholder:
+    description: 'Whether a bootstrap placeholder was staged because the output had no index.html'
+    value: ${{ steps.prepare_output.outputs.used_placeholder }}
 
 runs:
   using: 'composite'
@@ -86,6 +89,7 @@ runs:
         npx --yes --ignore-scripts "vercel@$VERCEL_VERSION" pull --yes --environment="$ENV_ARG" --token="$VERCEL_TOKEN"
 
     - name: Build Vercel Output API structure
+      id: prepare_output
       if: inputs.remote_build != 'true' && inputs.prepare_output == 'true'
       shell: bash
       working-directory: ${{ inputs.working_directory }}
@@ -110,6 +114,7 @@ runs:
             -exec cp -r {} .vercel/output/static/ \;
         fi
         if [ ! -f .vercel/output/static/index.html ]; then
+          echo "used_placeholder=true" >> "$GITHUB_OUTPUT"
           echo "Scaffolding Vercel static fallback index.html..."
           cat << 'HTML_EOF' > .vercel/output/static/index.html
           <!DOCTYPE html>

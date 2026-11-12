@@ -143,7 +143,7 @@ The workflow force-pushes only the floating major tag, never the semantic tag.
 Before tagging and publishing any release, verify:
 
 - [ ] All action definitions in `actions/*/action.yml` have valid YAML syntax.
-- [ ] New inputs/outputs are properly documented in `README.md`.
+- [ ] New inputs/outputs are properly documented in `USAGE.md`.
 - [ ] Example workflows in `examples/` are up to date.
 - [ ] CI validation checks on `main` are green.
 - [ ] Floating major tag for the release (`v2`) has been pushed.

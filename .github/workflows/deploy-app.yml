@@ -237,6 +237,7 @@ jobs:
     outputs:
       deploy_url: ${{ steps.deploy_cf.outputs.deploy_url }}
       deployment_mode: ${{ steps.deploy_cf.outputs.deployment_mode }}
+      used_placeholder: ${{ steps.deploy_cf.outputs.used_placeholder }}
     steps:
       # A fork that only edits its caller's `uses:` still runs upstream's actions
       # with its own tokens. `job.workflow_repository` would detect that exactly,
@@ -300,6 +301,7 @@ jobs:
       url: ${{ steps.resolve_url.outputs.deploy_url }}
     outputs:
       deploy_url: ${{ steps.resolve_url.outputs.deploy_url }}
+      used_placeholder: ${{ steps.resolve_url.outputs.used_placeholder }}
     steps:
       # Same reason as the Cloudflare job's provenance notice: a fork must edit
       # these five refs itself, and the precise check fails actionlint.
@@ -387,10 +389,13 @@ jobs:
           path: ${{ inputs.working_directory }}/_dist_assets/
 
       - name: Refuse to audit a bootstrap placeholder
-        if: needs.validate-and-build.outputs.is_bootstrap == 'true'
+        if: >-
+          needs.validate-and-build.outputs.is_bootstrap == 'true' ||
+          needs.deploy-cloudflare.outputs.used_placeholder == 'true' ||
+          needs.deploy-vercel.outputs.used_placeholder == 'true'
         shell: bash
         run: |
-          echo "::error::The build produced no index.html; Lighthouse will not audit the bootstrap placeholder. Fix dist_dir or build_command."
+          echo "::error::A bootstrap placeholder was built or deployed; Lighthouse will not audit it. Fix dist_dir or build_command."
           exit 1
 
       - name: Run Lighthouse audit and report
@@ -398,7 +403,7 @@ jobs:
         with:
           working_directory: ${{ inputs.working_directory }}
           # SSR must be audited on the Worker; a Vercel backup or static client build cannot replace it.
-          target_url: ${{ ((inputs.cloudflare_mode == 'ssr' || needs.deploy-cloudflare.outputs.deployment_mode == 'ssr') && needs.deploy-cloudflare.outputs.deploy_url) || ((inputs.cloudflare_mode != 'ssr' && needs.deploy-cloudflare.outputs.deployment_mode != 'ssr') && (needs.deploy-cloudflare.outputs.deploy_url || needs.deploy-vercel.outputs.deploy_url)) || '' }}
+          target_url: ${{ needs.deploy-cloudflare.outputs.deploy_url || ((inputs.cloudflare_mode != 'ssr' && needs.deploy-cloudflare.outputs.deployment_mode != 'ssr') && needs.deploy-vercel.outputs.deploy_url) || '' }}
           require_live_url: ${{ inputs.cloudflare_mode == 'ssr' || needs.deploy-cloudflare.outputs.deployment_mode == 'ssr' }}
           routes: ${{ inputs.lighthouse_routes }}
           config_path: ${{ inputs.lighthouse_config_path }}
