@@ -39,6 +39,10 @@ inputs:
     description: 'Branch that deploys to production; other branches deploy previews'
     required: false
     default: 'main'
+  enable_previews:
+    description: 'Deploy preview environments for non-production refs'
+    required: false
+    default: 'true'
 
 outputs:
   deploy_url:
@@ -46,7 +50,7 @@ outputs:
     value: ${{ steps.resolve_url.outputs.deploy_url }}
   is_production:
     description: 'Whether this was a production deployment'
-    value: ${{ steps.deploy.outputs.is_production }}
+    value: ${{ steps.guard.outputs.is_production }}
   used_placeholder:
     description: 'Whether a bootstrap placeholder was staged because the output had no index.html'
     value: ${{ steps.prepare_output.outputs.used_placeholder }}
@@ -54,7 +58,35 @@ outputs:
 runs:
   using: 'composite'
   steps:
+    - name: Check preview eligibility
+      id: guard
+      shell: bash
+      working-directory: ${{ inputs.working_directory }}
+      env:
+        ENABLE_PREVIEWS: ${{ inputs.enable_previews }}
+        RAW_HEAD_REF: ${{ github.head_ref }}
+        RAW_REF_NAME: ${{ github.ref_name }}
+        PROD_BRANCH: ${{ inputs.production_branch }}
+      run: |
+        BRANCH_NAME="${RAW_HEAD_REF:-$RAW_REF_NAME}"
+        IS_PROD="false"
+        if [ "${GITHUB_EVENT_NAME:-}" != "pull_request" ] && [ "${GITHUB_EVENT_NAME:-}" != "pull_request_target" ] \
+          && [ "${GITHUB_REF_TYPE:-}" = "branch" ] && [ "$BRANCH_NAME" = "$PROD_BRANCH" ]; then
+          IS_PROD="true"
+        fi
+        SKIP="false"
+        PROD_FLAG=""
+        if [ "$IS_PROD" = "true" ]; then PROD_FLAG="--prod"; fi
+        if [ "$ENABLE_PREVIEWS" != "true" ] && [ "$IS_PROD" != "true" ]; then
+          SKIP="true"
+          echo "::notice::Preview deployments are disabled (enable_previews=false); skipping."
+        fi
+        echo "skip=$SKIP" >> "$GITHUB_OUTPUT"
+        echo "is_production=$IS_PROD" >> "$GITHUB_OUTPUT"
+        echo "prod_flag=$PROD_FLAG" >> "$GITHUB_OUTPUT"
+
     - name: Validate Vercel deployment credentials
+      if: steps.guard.outputs.skip != 'true'
       shell: bash
       working-directory: ${{ inputs.working_directory }}
       env:
@@ -68,6 +100,7 @@ runs:
         fi
 
     - name: Pull Vercel project settings
+      if: steps.guard.outputs.skip != 'true'
       shell: bash
       working-directory: ${{ inputs.working_directory }}
       env:
@@ -75,22 +108,16 @@ runs:
         VERCEL_PROJECT_ID: ${{ inputs.project_id }}
         VERCEL_TOKEN: ${{ inputs.vercel_token }}
         VERCEL_VERSION: '65.14.0'
-        RAW_HEAD_REF: ${{ github.head_ref }}
-        RAW_REF_NAME: ${{ github.ref_name }}
-        PROD_BRANCH: ${{ inputs.production_branch }}
+        IS_PROD: ${{ steps.guard.outputs.is_production }}
       run: |
-        BRANCH_NAME="${RAW_HEAD_REF:-$RAW_REF_NAME}"
         ENV_ARG="preview"
-        if [ "${GITHUB_EVENT_NAME:-}" != "pull_request" ] && [ "${GITHUB_EVENT_NAME:-}" != "pull_request_target" ] \
-          && [ "${GITHUB_REF_TYPE:-}" = "branch" ] && [ "$BRANCH_NAME" = "$PROD_BRANCH" ]; then
-          ENV_ARG="production"
-        fi
+        if [ "$IS_PROD" = "true" ]; then ENV_ARG="production"; fi
         # Pinned in VERCEL_VERSION above; this runs in the job holding VERCEL_TOKEN.
         npx --yes --ignore-scripts "vercel@${VERCEL_VERSION:?VERCEL_VERSION must be set}" pull --yes --environment="$ENV_ARG" --token="$VERCEL_TOKEN"
 
     - name: Build Vercel Output API structure
       id: prepare_output
-      if: inputs.remote_build != 'true' && inputs.prepare_output == 'true'
+      if: steps.guard.outputs.skip != 'true' && inputs.remote_build != 'true' && inputs.prepare_output == 'true'
       shell: bash
       working-directory: ${{ inputs.working_directory }}
       env:
@@ -137,6 +164,7 @@ runs:
 
     - name: Deploy to Vercel (with retry)
       id: deploy
+      if: steps.guard.outputs.skip != 'true'
       shell: bash
       working-directory: ${{ inputs.working_directory }}
       env:
@@ -147,20 +175,8 @@ runs:
         MAX_RETRIES: ${{ inputs.max_retries }}
         INITIAL_RETRY_DELAY: ${{ inputs.retry_delay }}
         REMOTE_BUILD: ${{ inputs.remote_build }}
-        RAW_HEAD_REF: ${{ github.head_ref }}
-        RAW_REF_NAME: ${{ github.ref_name }}
-        PROD_BRANCH: ${{ inputs.production_branch }}
+        PROD_FLAG: ${{ steps.guard.outputs.prod_flag }}
       run: |
-        BRANCH_NAME="${RAW_HEAD_REF:-$RAW_REF_NAME}"
-        PROD_FLAG=""
-        IS_PROD="false"
-        if [ "${GITHUB_EVENT_NAME:-}" != "pull_request" ] && [ "${GITHUB_EVENT_NAME:-}" != "pull_request_target" ] \
-          && [ "${GITHUB_REF_TYPE:-}" = "branch" ] && [ "$BRANCH_NAME" = "$PROD_BRANCH" ]; then
-          PROD_FLAG="--prod"
-          IS_PROD="true"
-        fi
-        echo "is_production=$IS_PROD" >> "$GITHUB_OUTPUT"
-
         BUILD_FLAG="--prebuilt"
         if [ "$REMOTE_BUILD" = "true" ]; then
           BUILD_FLAG=""
@@ -192,6 +208,7 @@ runs:
 
     - name: Resolve Vercel deployment URL via REST API
       id: resolve_url
+      if: steps.guard.outputs.skip != 'true'
       shell: bash
       working-directory: ${{ inputs.working_directory }}
       env:
@@ -247,19 +264,29 @@ runs:
         TARGET_BRANCH: ${{ github.head_ref || github.ref_name }}
         REMOTE_BUILD: ${{ inputs.remote_build }}
         DEPLOY_URL_SUMMARY: ${{ steps.resolve_url.outputs.deploy_url }}
+        IS_PROD: ${{ steps.guard.outputs.is_production }}
+        SKIP: ${{ steps.guard.outputs.skip }}
       run: |
         BUILD_TYPE="Prebuilt (GitHub Actions)"
         if [ "$REMOTE_BUILD" = "true" ]; then
           BUILD_TYPE="Remote (Vercel Cloud Build)"
         fi
+        if [ "$IS_PROD" = "true" ]; then MODE="Production"; else MODE="Preview"; fi
+        URL="${DEPLOY_URL_SUMMARY:-—}"
+        STATUS="Deployed"
+        if [ "$SKIP" = "true" ]; then
+          MODE="Skipped"
+          STATUS="Skipped (previews disabled)"
+        fi
+        BRANCH_LABEL=$(printf '%s' "$TARGET_BRANCH" | tr -cd 'a-zA-Z0-9._/-')
         {
           echo "### Vercel Deployment"
           echo ""
           echo "| Detail | Value |"
           echo "| :--- | :--- |"
-          echo "| URL | ${DEPLOY_URL_SUMMARY} |"
-          echo "| Branch | \`${TARGET_BRANCH}\` |"
+          echo "| URL | ${URL} |"
+          echo "| Branch | \`${BRANCH_LABEL}\` |"
           echo "| Build Location | ${BUILD_TYPE} |"
-          echo "| Mode | ${{ steps.deploy.outputs.is_production == 'true' && 'Production' || 'Preview' }} |"
-          echo "| Status | Deployed |"
+          echo "| Mode | ${MODE} |"
+          echo "| Status | ${STATUS} |"
         } >> "$GITHUB_STEP_SUMMARY"
