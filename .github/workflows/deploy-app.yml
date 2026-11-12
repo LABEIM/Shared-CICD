@@ -165,7 +165,7 @@ jobs:
             | jq -r --argjson v "$ALL_VARS_JSON" '
                 [ to_entries[]
                   | select(.key | startswith("PUBLIC_"))
-                  | select($v[.key] != null and $v[.key] != "" and $v[.key] != .value)
+                  | select(.value != "" and $v[.key] != null and $v[.key] != "" and $v[.key] != .value)
                   | .key ] | .[]')
           if [ -n "$conflicts" ]; then
             echo "::error::PUBLIC_* defined as both a secret and a non-empty variable with different values: $(printf '%s' "$conflicts" | tr '\n' ' ')"
@@ -220,7 +220,7 @@ jobs:
       contents: read
       deployments: write
     environment:
-      name: ${{ github.event_name != 'pull_request' && (github.head_ref || github.ref_name) == inputs.production_branch && 'cloudflare-production' || 'cloudflare-preview' }}
+      name: ${{ github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.ref_type == 'branch' && (github.head_ref || github.ref_name) == inputs.production_branch && 'cloudflare-production' || 'cloudflare-preview' }}
       url: ${{ steps.deploy_cf.outputs.deploy_url }}
     outputs:
       deploy_url: ${{ steps.deploy_cf.outputs.deploy_url }}
@@ -273,7 +273,7 @@ jobs:
       contents: read
       deployments: write
     environment:
-      name: ${{ github.event_name != 'pull_request' && (github.head_ref || github.ref_name) == inputs.production_branch && 'vercel-production' || 'vercel-preview' }}
+      name: ${{ github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.ref_type == 'branch' && (github.head_ref || github.ref_name) == inputs.production_branch && 'vercel-production' || 'vercel-preview' }}
       url: ${{ steps.resolve_url.outputs.deploy_url }}
     outputs:
       deploy_url: ${{ steps.resolve_url.outputs.deploy_url }}

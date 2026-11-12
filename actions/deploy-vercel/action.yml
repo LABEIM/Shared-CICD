@@ -77,7 +77,8 @@ runs:
       run: |
         BRANCH_NAME="${RAW_HEAD_REF:-$RAW_REF_NAME}"
         ENV_ARG="preview"
-        if [ "${GITHUB_EVENT_NAME:-}" != "pull_request" ] && [ "$BRANCH_NAME" = "$PROD_BRANCH" ]; then
+        if [ "${GITHUB_EVENT_NAME:-}" != "pull_request" ] && [ "${GITHUB_EVENT_NAME:-}" != "pull_request_target" ] \
+          && [ "${GITHUB_REF_TYPE:-}" = "branch" ] && [ "$BRANCH_NAME" = "$PROD_BRANCH" ]; then
           ENV_ARG="production"
         fi
         npx --yes vercel@latest pull --yes --environment="$ENV_ARG" --token="$VERCEL_TOKEN"
@@ -96,11 +97,13 @@ runs:
         fi
         mkdir -p .vercel/output/static
         if [ "$DIST" = "." ] || [ "$DIST" = "./" ]; then
+          # Depth-1 credential exclusion; upload-artifact's denylist is the recursive boundary.
           find . -maxdepth 1 ! -name '.' ! -name '.git' ! -name '.github' ! -name '.vercel' ! -name 'node_modules' ! -name '.lighthouseci' \
             ! -name '.env*' ! -name '.dev.vars*' ! -name '.npmrc' ! -name '.yarnrc*' ! -name '.netrc' ! -name '.git-credentials' ! -name '.pypirc' ! -name '.aws' ! -name '.ssh' ! -name '.docker' ! -name '*.pem' ! -name 'id_rsa*' \
             -exec cp -r {} .vercel/output/static/ \;
         elif [ -d "$DIST" ] && [ "$(ls -A "$DIST" 2>/dev/null)" ]; then
-          find "$DIST" -mindepth 1 -maxdepth 1 \
+          # -H so a symlinked dist_dir is copied, not silently skipped.
+          find -H "$DIST" -mindepth 1 -maxdepth 1 \
             ! -name '.env*' ! -name '.dev.vars*' ! -name '.npmrc' ! -name '.yarnrc*' ! -name '.netrc' ! -name '.git-credentials' ! -name '.pypirc' ! -name '.aws' ! -name '.ssh' ! -name '.docker' ! -name '*.pem' ! -name 'id_rsa*' \
             -exec cp -r {} .vercel/output/static/ \;
         fi
@@ -143,7 +146,8 @@ runs:
         BRANCH_NAME="${RAW_HEAD_REF:-$RAW_REF_NAME}"
         PROD_FLAG=""
         IS_PROD="false"
-        if [ "${GITHUB_EVENT_NAME:-}" != "pull_request" ] && [ "$BRANCH_NAME" = "$PROD_BRANCH" ]; then
+        if [ "${GITHUB_EVENT_NAME:-}" != "pull_request" ] && [ "${GITHUB_EVENT_NAME:-}" != "pull_request_target" ] \
+          && [ "${GITHUB_REF_TYPE:-}" = "branch" ] && [ "$BRANCH_NAME" = "$PROD_BRANCH" ]; then
           PROD_FLAG="--prod"
           IS_PROD="true"
         fi
@@ -234,6 +238,7 @@ runs:
       env:
         TARGET_BRANCH: ${{ github.head_ref || github.ref_name }}
         REMOTE_BUILD: ${{ inputs.remote_build }}
+        DEPLOY_URL_SUMMARY: ${{ steps.resolve_url.outputs.deploy_url }}
       run: |
         BUILD_TYPE="Prebuilt (GitHub Actions)"
         if [ "$REMOTE_BUILD" = "true" ]; then
@@ -244,7 +249,7 @@ runs:
           echo ""
           echo "| Detail | Value |"
           echo "| :--- | :--- |"
-          echo "| URL | ${{ steps.resolve_url.outputs.deploy_url }} |"
+          echo "| URL | ${DEPLOY_URL_SUMMARY} |"
           echo "| Branch | \`${TARGET_BRANCH}\` |"
           echo "| Build Location | ${BUILD_TYPE} |"
           echo "| Mode | ${{ steps.deploy.outputs.is_production == 'true' && 'Production' || 'Preview' }} |"

@@ -81,7 +81,8 @@ runs:
         BRANCH_NAME="${RAW_HEAD_REF:-$RAW_REF_NAME}"
         CLEAN_BRANCH=$(echo "$BRANCH_NAME" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g; s/^-//; s/-$//')
         IS_PROD="false"
-        if [ "${GITHUB_EVENT_NAME:-}" != "pull_request" ] && [ "$BRANCH_NAME" = "$PROD_BRANCH" ]; then
+        if [ "${GITHUB_EVENT_NAME:-}" != "pull_request" ] && [ "${GITHUB_EVENT_NAME:-}" != "pull_request_target" ] \
+          && [ "${GITHUB_REF_TYPE:-}" = "branch" ] && [ "$BRANCH_NAME" = "$PROD_BRANCH" ]; then
           IS_PROD="true"
         fi
 
@@ -159,7 +160,8 @@ runs:
           TARGET_BRANCH="${HOOK_BRANCH:-$BRANCH_NAME}"
           TARGET_WORKER=$(printf '%s' "${HOOK_WORKER:-$CLEAN_PROJECT}" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g; s/^-//; s/-$//')
           TARGET_CLEAN_BRANCH=$(printf '%s' "$TARGET_BRANCH" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g; s/^-//; s/-$//')
-          if [ "$TARGET_BRANCH" = "$PROD_BRANCH" ]; then
+          if [ "${GITHUB_EVENT_NAME:-}" != "pull_request" ] && [ "${GITHUB_EVENT_NAME:-}" != "pull_request_target" ] \
+            && [ "${GITHUB_REF_TYPE:-}" = "branch" ] && [ "$TARGET_BRANCH" = "$PROD_BRANCH" ]; then
             IS_PROD="true"
           else
             IS_PROD="false"
