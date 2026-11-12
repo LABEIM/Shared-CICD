@@ -372,7 +372,7 @@ runs:
             </div>
             <div class="info-item">
             <div class="info-label">Branch</div>
-            <div class="info-value">${BRANCH_NAME}</div>
+            <div class="info-value">${BRANCH_NAME_HTML}</div>
             </div>
             <div class="info-item">
             <div class="info-label">Target Platform</div>
@@ -535,7 +535,8 @@ runs:
           echo "| Detail | Value |"
           echo "| :--- | :--- |"
           echo "| URL | ${DEPLOY_URL} |"
-          echo "| Branch | \`${TARGET_BRANCH}\` |"
+          BRANCH_LABEL=$(printf '%s' "$TARGET_BRANCH" | tr -d '|`')
+          echo "| Branch | \`${BRANCH_LABEL}\` |"
           echo "| Build Mode | ${BUILD_TYPE} |"
           echo "| Mode | ${MODE} |"
           echo "| Status | ${STATUS} |"

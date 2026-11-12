@@ -311,6 +311,7 @@ runs:
           }
           DISP_PROJECT_HTML=$(escape_html "$DISP_PROJECT")
           DISP_BRANCH_HTML=$(escape_html "$DISP_BRANCH")
+          REPO_NAME_HTML=$(escape_html "$REPO_NAME")
 
           cat << HTML_EOF > "${FINAL_DIR}/index.html"
           <!DOCTYPE html>
@@ -495,7 +496,7 @@ runs:
                     <div class="info-grid">
           <div class="info-item">
           <div class="info-label">Repository</div>
-          <div class="info-value">${REPO_NAME}</div>
+          <div class="info-value">${REPO_NAME_HTML}</div>
           </div>
           <div class="info-item">
           <div class="info-label">Branch</div>

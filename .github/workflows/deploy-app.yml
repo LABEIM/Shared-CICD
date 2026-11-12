@@ -49,6 +49,13 @@ on:
         type: string
         default: 'dist'
 
+      # Production target (Cloudflare and Vercel)
+      production_branch:
+        description: 'Branch that deploys to production on both Cloudflare and Vercel; other branches deploy previews'
+        required: false
+        type: string
+        default: 'main'
+
       # Cloudflare Target
       enable_cloudflare:
         description: 'Enable Cloudflare Workers deployment'
@@ -60,11 +67,6 @@ on:
         required: false
         type: string
         default: ''
-      production_branch:
-        description: 'Production branch name'
-        required: false
-        type: string
-        default: 'main'
       cloudflare_mode:
         description: 'Cloudflare deployment shape: "auto", "static", or "ssr"'
         required: false

@@ -82,14 +82,15 @@ When fixing bugs, updating action dependencies, or adding optional features:
 
 > **Result**: All downstream repositories referencing `@v2` will automatically inherit the update on their next workflow run without modifying any code.
 
-### v2.3.0 behaviour changes
+### v2.3.0 behavior changes
 
 Record these in the release notes, because consumers pinned to `@v2` inherit them without editing anything:
 
-- Production requires a non-`pull_request` run whose branch equals `production_branch` (default `main`), on both Cloudflare and Vercel. Previously Cloudflare also treated `main`/`master` as production regardless of the input, and Vercel treated every non-PR event as production.
+- Production requires a non-`pull_request` run of a branch whose ref equals `production_branch` (default `main`), on both Cloudflare and Vercel. Previously Cloudflare also treated `main`/`master` as production regardless of the input, and Vercel treated every non-PR event as production.
 - Vercel no longer deploys production from arbitrary branches, tags, or release events; those deploy previews.
+- The GitHub Environment (`*-production` / `*-preview`) follows the same rule, so a tag, release, or `workflow_dispatch`-on-a-tag run now uses the `*-preview` environment. Consumers that scope deployment tokens to the `*-production` environment only must add them to `*-preview` as well.
+- The build job runs with `contents: read` and `persist-credentials: false`. A `build_command` that pushes to the repository, or calls `gh`, now fails.
 - A `PUBLIC_*` name defined as both a secret and a non-empty variable with a different value now fails the build instead of silently preferring the variable.
-- The GitHub Environment (`*-production` / `*-preview`) follows the same production rule.
 
 ---
 

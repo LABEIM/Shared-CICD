@@ -105,7 +105,7 @@ runs:
         elif [ -d "$DIST" ] && [ "$(ls -A "$DIST" 2>/dev/null)" ]; then
           # -H so a symlinked dist_dir is copied, not silently skipped.
           find -H "$DIST" -mindepth 1 -maxdepth 1 \
-            ! -name '.env*' ! -name '.dev.vars*' ! -name '.npmrc' ! -name '.yarnrc*' ! -name '.netrc' ! -name '.git-credentials' ! -name '.pypirc' ! -name '.aws' ! -name '.ssh' ! -name '.docker' ! -name '*.pem' ! -name 'id_rsa*' \
+            ! -name '.git' ! -name '.env*' ! -name '.dev.vars*' ! -name '.npmrc' ! -name '.yarnrc*' ! -name '.netrc' ! -name '.git-credentials' ! -name '.pypirc' ! -name '.aws' ! -name '.ssh' ! -name '.docker' ! -name '*.pem' ! -name 'id_rsa*' \
             -exec cp -r {} .vercel/output/static/ \;
         fi
         if [ ! -f .vercel/output/static/index.html ]; then

@@ -145,7 +145,7 @@ Production vs. preview (both providers):
 - Tag and release events are previews too: their ref is the tag, not the production branch.
 - The GitHub Environment follows the same rule: `*-production` only for the production branch, `*-preview` otherwise.
 
-The build artifact `dist-static-build` is kept for 3 days. It includes hidden files such as `.well-known/security.txt`; `.env*`, `.dev.vars*`, `.npmrc`, `.yarnrc*`, `.netrc`, `.ssh`, `.aws`, `.docker`, `*.pem`, and `.git` are excluded. `dist_dir` must resolve inside the workspace, not its root.
+The build artifact `dist-static-build` is kept for 3 days. It includes hidden files such as `.well-known/security.txt`; `.env*`, `.dev.vars*`, `.npmrc`, `.yarnrc*`, `.netrc`, `.git-credentials`, `.pypirc`, `.aws`, `.ssh`, `.docker`, `*.pem`, `id_rsa*`, and `.git` are excluded. Staged and copied publish roots apply the same exclusions. `dist_dir` must resolve inside the workspace, not its root.
 
 ---
 
@@ -386,7 +386,7 @@ Use these directly when you need custom Docker builds, extra gates, or non-stand
 | :--- | :--- | :--- | :--- |
 | [`actions/setup-and-build`](actions/setup-and-build/action.yml) | Runtime setup, dependency install, check, build, stage output, upload artifact | `node_version`, `package_manager`, `install_command`, `check_command`, `build_command`, `dist_dir`, `project_name`, `artifact_name`, `artifact_retention_days` | `artifact_hash`, `build_duration`, `detected_package_manager`, `resolved_dist_dir` |
 | [`actions/deploy-cloudflare`](actions/deploy-cloudflare/action.yml) | Workers deploy (static assets or Worker + assets) or Deploy Hook trigger, with retries and URL resolution | `project_name` *(optional; defaults to the repository name, sanitized)*, `dist_dir`, `cloudflare_mode`, `not_found_handling`, `production_branch`, `api_token`, `account_id`, `deploy_hook_url`, `max_retries`, `retry_delay` | `deploy_url`, `is_production` |
-| [`actions/deploy-vercel`](actions/deploy-vercel/action.yml) | Build Output API v3 deploy or remote Vercel build | `project_id` *(required)*, `org_id` *(required)*, `vercel_token` *(required)*, `dist_dir`, `remote_build`, `prepare_output`, `max_retries`, `retry_delay` | `deploy_url`, `is_production` |
+| [`actions/deploy-vercel`](actions/deploy-vercel/action.yml) | Build Output API v3 deploy or remote Vercel build | `project_id` *(required)*, `org_id` *(required)*, `vercel_token` *(required)*, `dist_dir`, `remote_build`, `prepare_output`, `production_branch`, `max_retries`, `retry_delay` | `deploy_url`, `is_production` |
 | [`actions/pr-preview-comment`](actions/pr-preview-comment/action.yml) | Create or update the single preview comment | `cloudflare_url`, `vercel_url`, `custom_message`, `github_token` | — |
 | [`actions/lighthouse-audit`](actions/lighthouse-audit/action.yml) | Run Lighthouse CI and summarize scores; static audits resolve `dist_dir` under `working_directory` | `target_url`, `routes`, `config_path`, `dist_dir`, `append_to_pr`, `github_token` | `summary_markdown` |
 

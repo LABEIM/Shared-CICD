@@ -4,6 +4,10 @@ on:
   release:
     types: [released]
 
+concurrency:
+  group: release-tagger
+  cancel-in-progress: false
+
 permissions:
   contents: write
 
@@ -34,8 +38,15 @@ jobs:
             exit 0
           fi
 
+          # Only final releases count: a prerelease (e.g. v2.4.0-rc.1) sorts above its
+          # final version under `sort -V` and would otherwise block the real release.
+          if ! printf '%s' "${TAG}" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "Tag '${TAG}' is not a final semantic version; leaving '${MAJOR_VERSION}' in place."
+            exit 0
+          fi
+
           # A published older version must not drag every consumer backwards.
-          CURRENT=$(git tag --list "${MAJOR_VERSION}.*" --sort=-v:refname | head -1)
+          CURRENT=$(git tag --list "${MAJOR_VERSION}.*" | grep -E "^${MAJOR_VERSION}\.[0-9]+\.[0-9]+$" | sort -V | tail -1)
           if [ -n "${CURRENT}" ]; then
             NEWEST=$(printf '%s\n%s\n' "${CURRENT}" "${TAG}" | sort -V | tail -1)
             if [ "${NEWEST}" != "${TAG}" ]; then
