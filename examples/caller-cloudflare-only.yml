@@ -34,6 +34,7 @@ jobs:
       # Target Platforms
       enable_cloudflare: true
       cloudflare_project_name: 'my-web-project'
+      cloudflare_account_id: ${{ vars.CLOUDFLARE_ACCOUNT_ID }} # optional; falls back to the secret
       enable_vercel: false # Vercel is disabled and consumes 0 runner seconds
 
       # Audits & Feedback
@@ -44,6 +45,7 @@ jobs:
         /about
         /contact
 
-    # Build-time config: any inherited secret named PUBLIC_* is exported into
-    # the build environment (e.g. PUBLIC_GOOGLE_SHEET_SCRIPT_URL for Astro).
+    # Build-time config: any inherited secret or repository/organization variable
+    # named PUBLIC_* is exported into the build environment (variables win), e.g.
+    # PUBLIC_GOOGLE_SHEET_SCRIPT_URL for Astro.
     secrets: inherit

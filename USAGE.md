@@ -57,7 +57,7 @@ Add the secrets once at the **organization** level (recommended) or per reposito
 | Secret | Needed when | Notes |
 | :--- | :--- | :--- |
 | `CLOUDFLARE_API_TOKEN` | Deploying to Cloudflare via Wrangler | Token with `Account → Workers Scripts → Edit` |
-| `CLOUDFLARE_ACCOUNT_ID` | Deploying to Cloudflare via Wrangler | 32-character hexadecimal account ID |
+| `CLOUDFLARE_ACCOUNT_ID` | Deploying to Cloudflare via Wrangler, unless `cloudflare_account_id` is set | 32-character hexadecimal account ID |
 | `CLOUDFLARE_DEPLOY_HOOK_URL` | Remote Cloudflare builds | Optional; when set, it **takes precedence** over Wrangler |
 | `VERCEL_TOKEN` | Deploying to Vercel | Personal or automation token |
 
@@ -132,7 +132,7 @@ Production vs. preview:
 - **Cloudflare** — production when the branch matches `production_branch` (default `main`); `main` and `master` are always treated as production. `pull_request` events are always previews, even from a branch named `main`.
 - **Vercel** — production for every non-`pull_request` event; preview for pull requests.
 
-The build artifact `dist-static-build` is kept for 3 days.
+The build artifact `dist-static-build` is kept for 3 days. It includes hidden files such as `.well-known/security.txt`; `.env` / `.env.*`, `.dev.vars*`, `.npmrc`, `.yarnrc*`, and `.git` are excluded. `dist_dir` must point at a build output directory, not the working-directory root (the repository root when `working_directory: '.'`).
 
 ---
 
@@ -251,7 +251,7 @@ Use `build_location: 'none'` when the output is committed or produced by an earl
 > [!NOTE]
 > For Vercel, `'none'` deploys prebuilt output, so the repository must already contain a valid `.vercel/output/` directory. If you want Vercel to compile the project, use `build_location: 'vercel'` instead.
 
-If the resolved directory is missing, empty, or has no `index.html`, the workflow generates a small "Deployment Active" bootstrap page so the deployment does not fail. Treat that page as a signal that your `dist_dir` or `build_command` is wrong.
+If the resolved directory is missing, empty, or has no `index.html`, the workflow generates a small "Deployment Active" bootstrap page so the deployment does not fail. Treat that page as a signal that your `dist_dir` or `build_command` is wrong. On Cloudflare, SSR builds (`<dist_dir>/server/wrangler.json`) skip the placeholder because their site is served by the Worker; the Vercel and Lighthouse fallbacks still scaffold one if `client/index.html` is missing.
 
 ### Build location comparison
 
@@ -284,6 +284,7 @@ All inputs are optional unless noted. All are declared under `with:`.
 | `cloudflare_project_name` | string | `''` | Cloudflare Worker name (defaults to the repository name). |
 | `production_branch` | string | `'main'` | Branch treated as production. |
 | `cloudflare_mode` | string | `'auto'` | `'auto'`, `'static'`, or `'ssr'`. `auto` deploys a Worker + assets when `<dist_dir>/server/wrangler.json` exists, otherwise static assets. |
+| `cloudflare_account_id` | string | `''` | Cloudflare account ID as a non-secret value; falls back to the `CLOUDFLARE_ACCOUNT_ID` secret. |
 | `enable_vercel` | boolean | `false` | Deploy to Vercel. |
 | `vercel_project_id` | string | `''` | Vercel project ID (required when Vercel is enabled). |
 | `vercel_org_id` | string | `''` | Vercel organization/team ID (required when Vercel is enabled). |
@@ -303,17 +304,28 @@ Pass them with `secrets: inherit` (organization/repository secrets) or explicitl
 | Secret | Required | Description |
 | :--- | :---: | :--- |
 | `CLOUDFLARE_API_TOKEN` | Cloudflare via Wrangler | Token with Workers Scripts edit permission. |
-| `CLOUDFLARE_ACCOUNT_ID` | Cloudflare via Wrangler | Cloudflare account ID. |
+| `CLOUDFLARE_ACCOUNT_ID` | Cloudflare via Wrangler, unless `cloudflare_account_id` is set | Cloudflare account ID. |
 | `CLOUDFLARE_DEPLOY_HOOK_URL` | Cloudflare remote build | Deploy Hook URL; takes precedence over Wrangler. |
 | `VERCEL_TOKEN` | Vercel | Vercel personal/automation token. |
 
 Never commit these values. Keep `.env`, `.env.local`, and credential files out of the repository.
 
+Identifiers (`VERCEL_PROJECT_ID`, `VERCEL_ORG_ID`) are repository **variables**, not secrets; the examples read them via `vars.*`. The Cloudflare account ID can also be a variable: pass it with `cloudflare_account_id` and the `CLOUDFLARE_ACCOUNT_ID` secret is used only when that input is empty.
+
+Deployment credentials may live in the `cloudflare-production` / `cloudflare-preview` and `vercel-production` / `vercel-preview` environments. Environment secrets require a public repository on GitHub Free; private repositories on Free must use repository secrets.
+
+To pass the account ID as a variable:
+
+```yaml
+with:
+  cloudflare_account_id: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+```
+
 ### Build-time environment variables
 
-When the site is built on the runner (`build_location: github`, the default), every inherited secret whose name starts with `PUBLIC_` is exported into the build environment before the build command runs. The prefix is case-sensitive: nothing else is exported, and the step logs the exported names only, never the values.
+When the site is built on the runner (`build_location: github`, the default), every inherited secret or repository/organization variable whose name starts with `PUBLIC_` is exported into the build environment before the build command runs. The prefix is case-sensitive: nothing else is exported, and the step logs the exported names only, never the values. When both a variable and a secret share a name, the variable wins; an empty variable does not override a non-empty secret.
 
-This is how callers pass build-time configuration to frameworks that inline environment variables into the static output. GitHub does not allow the `secrets` context inside `with:`, so the values must arrive through `secrets: inherit`:
+This is how callers pass build-time configuration to frameworks that inline environment variables into the static output. GitHub does not allow the `secrets` context inside `with:`, so secret values must arrive through `secrets: inherit`; `PUBLIC_*` variables are read from the caller's repository automatically:
 
 ```yaml
 jobs:
@@ -509,7 +521,7 @@ Keystatic's GitHub storage mode is not supported on Workers by this pipeline (up
 > `dist_dir` must be the build root (`dist`). With `auto` or `static`, `dist_dir: 'dist/client'` deploys static assets only and `/keystatic` returns 404 with no warning; with `ssr` it fails before deploying. Forcing `static` on an SSR build also fails, because `dist` would publish `dist/server` as public assets — use `dist_dir: 'dist/client'` if you really want the assets only.
 
 > [!NOTE]
-> `not_found_handling` has no effect in `ssr` mode but is still validated. Astro 5/6 builds that emit `dist/_worker.js` fall back to static under `auto`; forcing `ssr` fails with an adapter error. Keep `/keystatic` out of `lighthouse_routes` (the admin requires authentication). PR previews render the admin, but edits are committed to the branch configured in Keystatic Cloud, not necessarily the PR branch, and content is baked at build time — saved edits reach production only after that branch is pushed and rebuilt. The deploy-hook (Workers Builds) path ignores the generated config, so commit a Wrangler config with `main` and `assets` instead. If you enable Vercel as a backup, it serves the prerendered `client/` assets only; dynamic routes such as `/keystatic` are not available there.
+> `not_found_handling` has no effect in `ssr` mode but is still validated. Astro 5/6 builds that emit `dist/_worker.js` fall back to static under `auto`; forcing `ssr` fails with an adapter error. Keep `/keystatic` out of `lighthouse_routes` (the admin requires authentication). PR previews render the admin, but edits are committed to the branch configured in Keystatic Cloud, not necessarily the PR branch, and content is baked at build time — saved edits reach production only after that branch is pushed and rebuilt. The deploy-hook (Workers Builds) path ignores the generated config, so commit a Wrangler config with `main` and `assets` instead. If you enable Vercel as a backup, it serves the prerendered `client/` assets only; dynamic routes such as `/keystatic` are not available there. The Lighthouse static fallback also audits `client/` for SSR builds.
 
 ### Next.js
 
