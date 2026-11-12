@@ -264,7 +264,7 @@ Use `build_location: 'none'` when the output is committed or produced by an earl
 > [!NOTE]
 > For Vercel, `'none'` deploys prebuilt output, so the repository must already contain a valid `.vercel/output/` directory. If you want Vercel to compile the project, use `build_location: 'vercel'` instead.
 
-If the resolved directory is missing, empty, or has no `index.html`, the workflow generates a small "Deployment Active" bootstrap page so the deployment does not fail. Treat that page as a signal that your `dist_dir` or `build_command` is wrong. On Cloudflare, SSR builds (`<dist_dir>/server/wrangler.json`) skip the placeholder because their site is served by the Worker; the Vercel and Lighthouse fallbacks still scaffold one if `client/index.html` is missing.
+If the resolved directory is missing, empty, or has no `index.html`, the build job generates a small "Deployment Active" bootstrap page so the deployment does not fail. Treat that page as a signal that your `dist_dir` or `build_command` is wrong; the Lighthouse job fails rather than auditing it. On Cloudflare, SSR builds (`<dist_dir>/server/wrangler.json`) skip the placeholder because their site is served by the Worker. The Lighthouse static fallback no longer scaffolds a page: it fails when there is no live URL and no real `index.html`.
 
 ### Build location comparison
 
@@ -287,6 +287,7 @@ All inputs are optional unless noted. All are declared under `with:`.
 | :--- | :---: | :---: | :--- |
 | `working_directory` | string | `'.'` | Subdirectory to build/deploy (monorepos). |
 | `build_location` | string | `'github'` | `'github'`, `'vercel'`, `'cloudflare'`, or `'none'`. |
+| `enable_previews` | boolean | `true` | Deploy preview environments on non-production refs. Set `false` for production-only deployments. |
 | `node_version` | string | `'22'` | Node version, or `'auto'` to read `.nvmrc` / `.node-version`. |
 | `package_manager` | string | `'auto'` | `'auto'`, `'npm'`, `'pnpm'`, `'bun'`, `'yarn'`, `'none'`, or `'static'`. |
 | `install_command` | string | `''` | Custom install command, or `'none'` to skip. |
@@ -384,17 +385,19 @@ Use these directly when you need custom Docker builds, extra gates, or non-stand
 
 | Action | Purpose | Key inputs | Outputs |
 | :--- | :--- | :--- | :--- |
-| [`actions/setup-and-build`](actions/setup-and-build/action.yml) | Runtime setup, dependency install, check, build, stage output, upload artifact | `node_version`, `package_manager`, `install_command`, `check_command`, `build_command`, `dist_dir`, `project_name`, `artifact_name`, `artifact_retention_days` | `artifact_hash`, `build_duration`, `detected_package_manager`, `resolved_dist_dir` |
-| [`actions/deploy-cloudflare`](actions/deploy-cloudflare/action.yml) | Workers deploy (static assets or Worker + assets) or Deploy Hook trigger, with retries and URL resolution | `project_name` *(optional; defaults to the repository name, sanitized)*, `dist_dir`, `cloudflare_mode`, `not_found_handling`, `production_branch`, `api_token`, `account_id`, `deploy_hook_url`, `max_retries`, `retry_delay` | `deploy_url`, `is_production` |
+| [`actions/setup-and-build`](actions/setup-and-build/action.yml) | Runtime setup, dependency install, check, build, stage output, upload artifact | `node_version`, `package_manager`, `install_command`, `check_command`, `build_command`, `dist_dir`, `project_name`, `artifact_name`, `artifact_retention_days` | `artifact_hash`, `build_duration`, `detected_package_manager`, `resolved_dist_dir`, `is_bootstrap` |
+| [`actions/deploy-cloudflare`](actions/deploy-cloudflare/action.yml) | Workers deploy (static assets or Worker + assets) or Deploy Hook trigger, with retries and URL resolution | `project_name` *(optional; defaults to the repository name, sanitized)*, `dist_dir`, `cloudflare_mode`, `not_found_handling`, `production_branch`, `api_token`, `account_id`, `deploy_hook_url`, `enable_previews`, `max_retries`, `retry_delay` | `deploy_url`, `is_production`, `deployment_mode` |
 | [`actions/deploy-vercel`](actions/deploy-vercel/action.yml) | Build Output API v3 deploy or remote Vercel build | `project_id` *(required)*, `org_id` *(required)*, `vercel_token` *(required)*, `dist_dir`, `remote_build`, `prepare_output`, `production_branch`, `max_retries`, `retry_delay` | `deploy_url`, `is_production` |
 | [`actions/pr-preview-comment`](actions/pr-preview-comment/action.yml) | Create or update the single preview comment | `cloudflare_url`, `vercel_url`, `custom_message`, `github_token` | — |
-| [`actions/lighthouse-audit`](actions/lighthouse-audit/action.yml) | Run Lighthouse CI and summarize scores; static audits resolve `dist_dir` under `working_directory` | `target_url`, `routes`, `config_path`, `dist_dir`, `append_to_pr`, `github_token` | `summary_markdown` |
+| [`actions/lighthouse-audit`](actions/lighthouse-audit/action.yml) | Run Lighthouse CI and summarize scores; static audits resolve `dist_dir` under `working_directory` | `target_url`, `require_live_url`, `routes`, `config_path`, `dist_dir`, `append_to_pr`, `github_token` | `summary_markdown` |
+
+`wrangler` and `vercel` run through `npx` inside the jobs that hold `CLOUDFLARE_API_TOKEN` / `VERCEL_TOKEN`. Their versions are pinned in each action's `env:` and installed with `--ignore-scripts`.
 
 The reusable [`deploy-app.yml`](.github/workflows/deploy-app.yml) workflow is composed of these same actions, referenced at `@v2`; workflow and actions move together in a release.
 
 `not_found_handling` controls unmatched paths: `auto` (default) uses `404-page` when `dist_dir/404.html` exists and `single-page-application` otherwise. Set it explicitly to override that guess; any other value fails the step. It applies to direct Wrangler uploads only; remote Workers Builds use the consumer's committed Wrangler config instead. A committed `wrangler.json`/`wrangler.toml` is ignored for direct uploads: the generated config is the whole deployment config.
 
-`cloudflare_mode` selects the deployment shape. `auto` (default) deploys a Worker + assets when `<dist_dir>/server/wrangler.json` exists (emitted by `@astrojs/cloudflare` 14+), otherwise static assets. `ssr` forces the Worker shape and fails if that config is missing; `static` forces assets only. In `ssr` mode `not_found_handling` has no effect (still validated), because unmatched paths must reach the Worker. See [Astro + Keystatic](#astro--keystatic-worker--assets).
+`cloudflare_mode` selects the deployment shape. `auto` (default) deploys a Worker + assets when `<dist_dir>/server/wrangler.json` exists (emitted by `@astrojs/cloudflare` 14+), otherwise static assets. `ssr` forces the Worker shape and fails if that config is missing; `static` forces assets only. In `ssr` mode `not_found_handling` has no effect (still validated), because unmatched paths must reach the Worker. For Workers Builds deploy-hook builds there is no local artifact, so `auto` cannot detect SSR; set `cloudflare_mode: 'ssr'` to require a live Worker URL for Lighthouse. See [Astro + Keystatic](#astro--keystatic-worker--assets).
 
 A production direct upload serves the Worker at `<sanitized-worker>.<subdomain>.workers.dev`; a preview is created per branch and is normally reachable at `<sanitized-branch>-<sanitized-worker>.<subdomain>.workers.dev`. For direct uploads, `deploy_url` is the first `*.workers.dev` URL Cloudflare reports for the preview (`preview.urls`, then `deployment.urls`), so a custom-domain Preview URL never reaches a PR comment; a workers.dev alias the CLI does not report is constructed from the account subdomain and published only after it answers. A Workers Builds deploy hook has no such output, so its URL is resolved from the subdomain without probing.
 
@@ -611,13 +614,16 @@ Provide the `VERCEL_TOKEN` secret and both `vercel_project_id` / `vercel_org_id`
 The comment job only runs on `pull_request` events with `enable_pr_comment: true`, and the caller must grant `pull-requests: write`. Fork PRs do not receive secrets.
 
 **Lighthouse scores look wrong.**
-Lighthouse audits the Cloudflare URL first, then Vercel, then the static build. Make sure every route in `lighthouse_routes` exists and is publicly reachable; a 404 page will score poorly.
+Lighthouse audits the Cloudflare URL first, then Vercel, then the static build. Make sure every route in `lighthouse_routes` exists and is publicly reachable; a 404 page will score poorly. In `ssr` mode only the Cloudflare URL is accepted, because a Vercel build or static `client/` directory does not exercise Worker routes.
+
+**Lighthouse fails with no live deployment URL.**
+An `ssr` deployment must resolve a `workers.dev` URL before the audit runs; an unresolved URL fails instead of auditing the static fallback. For a Workers Builds deploy-hook build, provide `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN`, or set `enable_lighthouse: false`.
 
 **A deployment ran but the wrong branch is production.**
 Production requires a non-`pull_request` run whose branch equals `production_branch` (default `main`). A push to any other branch, a tag, or a release deploys a preview. Set `production_branch` if your production branch is not `main`.
 
 **The job is green but `deploy_url` is empty.**
-The Worker URL could not be resolved from the deployment output or the account's `workers.dev` subdomain. Check that the subdomain is registered and that the token can read Workers Scripts. On a direct upload, a constructed fallback URL is published only after it answers with a 2xx/3xx; if it does not, `deploy_url` stays empty instead of linking a dead URL. A custom-domain Preview URL is never published. A Deploy Hook build resolves its URL from the subdomain without probing, because the remote build has not finished yet. Lighthouse falls back to the static build in that case.
+The Worker URL could not be resolved from the deployment output or the account's `workers.dev` subdomain. Check that the subdomain is registered and that the token can read Workers Scripts. On a direct upload, a constructed fallback URL is published only after it answers with a 2xx/3xx; if it does not, `deploy_url` stays empty instead of linking a dead URL. A custom-domain Preview URL is never published. A Deploy Hook build resolves its URL from the subdomain without probing, because the remote build has not finished yet. Lighthouse falls back to the static build for non-SSR projects; for `ssr` it fails when no live URL resolves.
 
 **The deploy step fails with `dist_dir must resolve inside the workspace` or `max_retries must be a positive integer`.**
 `dist_dir` must point inside the checked-out repository (not `..`, an absolute path, or the repo root), and `max_retries` must be a positive integer.

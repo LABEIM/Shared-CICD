@@ -38,6 +38,10 @@ inputs:
     description: 'Optional Cloudflare Workers Builds Deploy Hook URL to trigger a remote build'
     required: false
     default: ''
+  enable_previews:
+    description: 'Deploy preview environments for non-production refs'
+    required: false
+    default: 'true'
   max_retries:
     description: 'Maximum number of deployment retry attempts'
     required: false
@@ -79,6 +83,8 @@ runs:
         RAW_HEAD_REF: ${{ github.head_ref }}
         RAW_REF_NAME: ${{ github.ref_name }}
         REPO_NAME: ${{ github.repository }}
+        ENABLE_PREVIEWS: ${{ inputs.enable_previews }}
+        WRANGLER_VERSION: '4.160.0'
       run: |
         set -eo pipefail
         BRANCH_NAME="${RAW_HEAD_REF:-$RAW_REF_NAME}"
@@ -87,6 +93,14 @@ runs:
         if [ "${GITHUB_EVENT_NAME:-}" != "pull_request" ] && [ "${GITHUB_EVENT_NAME:-}" != "pull_request_target" ] \
           && [ "${GITHUB_REF_TYPE:-}" = "branch" ] && [ "$BRANCH_NAME" = "$PROD_BRANCH" ]; then
           IS_PROD="true"
+        fi
+
+        if [ "$ENABLE_PREVIEWS" != "true" ] && [ "$IS_PROD" != "true" ]; then
+          echo "::notice::Preview deployments are disabled (enable_previews=false); skipping."
+          printf 'deploy_url=\n' >> "$GITHUB_OUTPUT"
+          printf 'is_production=false\n' >> "$GITHUB_OUTPUT"
+          printf 'deployment_mode=\n' >> "$GITHUB_OUTPUT"
+          exit 0
         fi
 
         RESOLVED_PROJECT="${PROJECT_NAME:-${REPO_NAME#*/}}"
@@ -477,9 +491,9 @@ runs:
           do_deploy() {
             # Pinned; bump deliberately — see RELEASING.md.
             if [ "$IS_PROD" = "true" ]; then
-              npx --yes wrangler@4.160.0 "${DEPLOY_ARGS[@]}" 2>&1 | tee cf_deploy.log
+              npx --yes --ignore-scripts "wrangler@$WRANGLER_VERSION" "${DEPLOY_ARGS[@]}" 2>&1 | tee cf_deploy.log
             else
-              npx --yes wrangler@4.160.0 "${DEPLOY_ARGS[@]}" > cf_preview.json 2> cf_deploy.log
+              npx --yes --ignore-scripts "wrangler@$WRANGLER_VERSION" "${DEPLOY_ARGS[@]}" > cf_preview.json 2> cf_deploy.log
             fi
           }
           RETRY_DELAY=$INITIAL_RETRY_DELAY
@@ -569,6 +583,7 @@ runs:
         DEPLOY_HOOK: ${{ inputs.deploy_hook_url }}
         DEPLOY_URL: ${{ steps.deploy.outputs.deploy_url }}
         IS_PROD: ${{ steps.deploy.outputs.is_production }}
+        ENABLE_PREVIEWS: ${{ inputs.enable_previews }}
       run: |
         BUILD_TYPE="Direct Upload (Wrangler)"
         if [ -n "$DEPLOY_HOOK" ]; then
@@ -576,13 +591,18 @@ runs:
         fi
         if [ "$IS_PROD" = "true" ]; then MODE="Production"; else MODE="Branch Preview"; fi
         STATUS="Deployed"
-        if [ -z "$DEPLOY_URL" ]; then STATUS="Deployed (URL unresolved)"; fi
+        URL="${DEPLOY_URL:-—}"
+        if [ "$ENABLE_PREVIEWS" != "true" ] && [ "$IS_PROD" != "true" ]; then
+          STATUS="Skipped (previews disabled)"
+        elif [ -z "$DEPLOY_URL" ]; then
+          STATUS="Deployed (URL unresolved)"
+        fi
         {
           echo "### Cloudflare Workers Deployment"
           echo ""
           echo "| Detail | Value |"
           echo "| :--- | :--- |"
-          echo "| URL | ${DEPLOY_URL} |"
+          echo "| URL | ${URL} |"
           BRANCH_LABEL=$(printf '%s' "$TARGET_BRANCH" | tr -d '|`')
           echo "| Branch | \`${BRANCH_LABEL}\` |"
           echo "| Build Mode | ${BUILD_TYPE} |"

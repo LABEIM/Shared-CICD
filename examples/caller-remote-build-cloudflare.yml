@@ -39,7 +39,9 @@ jobs:
 
       # Audits & Feedback
       enable_pr_comment: true
-      enable_lighthouse: true
+      # No live URL without CLOUDFLARE_ACCOUNT_ID + a token, so a Lighthouse
+      # audit would fail. Provide credentials or leave the audit disabled.
+      enable_lighthouse: false
       lighthouse_routes: |
         /
         /about
