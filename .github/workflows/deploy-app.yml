@@ -144,26 +144,30 @@ jobs:
       # The reusable workflow runs in consumer repositories, where `./actions/*` resolves
       # against the consumer's checkout. Reference this repository's actions explicitly and
       # keep `@v2` in sync with the floating release tag.
-      - name: Export PUBLIC_* secrets for build
+      - name: Export PUBLIC_* values for build
         shell: bash
         env:
           ALL_SECRETS_JSON: ${{ toJSON(secrets) }}
+          ALL_VARS_JSON: ${{ toJSON(vars) }}
         run: |
           set -euo pipefail
           DELIM="__GH_ENV_$(openssl rand -hex 16)__"
 
-          # Only PUBLIC_* secrets are exported. Never export tokens or
-          # deployment credentials into the build environment.
-          echo "$ALL_SECRETS_JSON" \
-            | jq -r --arg delim "$DELIM" '
-                to_entries[]
+          # Only PUBLIC_* values are exported. Variables win over secrets; an empty variable does not.
+          printf '%s' "$ALL_SECRETS_JSON" \
+            | jq -r --argjson v "$ALL_VARS_JSON" --arg delim "$DELIM" '
+                (. + ($v | with_entries(select(.value != ""))))
+                | to_entries[]
                 | select(.key | startswith("PUBLIC_"))
                 | "\(.key)<<\($delim)\n\(.value)\n\($delim)"
               ' >> "$GITHUB_ENV"
 
-          echo "Exported PUBLIC_* secrets to the build environment:"
-          echo "$ALL_SECRETS_JSON" \
-            | jq -r 'to_entries[] | select(.key | startswith("PUBLIC_")) | .key'
+          echo "Exported PUBLIC_* values to the build environment:"
+          printf '%s' "$ALL_SECRETS_JSON" \
+            | jq -r --argjson v "$ALL_VARS_JSON" '
+                (. + ($v | with_entries(select(.value != ""))))
+                | to_entries[] | select(.key | startswith("PUBLIC_")) | .key
+              '
 
       - name: Setup, build, and upload static app
         id: build
