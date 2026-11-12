@@ -410,6 +410,8 @@ npx wrangler preview delete --skip-confirmation --name "<sanitized-branch>" --wo
 
 `preview delete` is an open-beta command; it needs `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` in the environment.
 
+Cloudflare's [Delete closed pull request Previews](https://developers.cloudflare.com/workers/previews/examples/#delete-closed-pull-request-previews) example shows the full trigger and job.
+
 Example custom pipeline:
 
 ```yaml
@@ -539,7 +541,7 @@ Keystatic's GitHub storage mode is not supported on Workers by this pipeline (up
 > `dist_dir` must be the build root (`dist`). With `auto` or `static`, `dist_dir: 'dist/client'` deploys static assets only and `/keystatic` returns 404 with no warning; with `ssr` it fails before deploying. Forcing `static` on an SSR build also fails, because `dist` would publish `dist/server` as public assets — use `dist_dir: 'dist/client'` if you really want the assets only.
 
 > [!NOTE]
-> `not_found_handling` has no effect in `ssr` mode but is still validated. Astro 5/6 builds that emit `dist/_worker.js` fall back to static under `auto`; forcing `ssr` fails with an adapter error. Keep `/keystatic` out of `lighthouse_routes` (the admin requires authentication). PR previews render the admin, but edits are committed to the branch configured in Keystatic Cloud, not necessarily the PR branch, and content is baked at build time — saved edits reach production only after that branch is pushed and rebuilt. The deploy-hook (Workers Builds) path ignores the generated config, so commit a Wrangler config with `main` and `assets` instead. If you enable Vercel as a backup, it serves the prerendered `client/` assets only; dynamic routes such as `/keystatic` are not available there. The Lighthouse static fallback also audits `client/` for SSR builds.
+> `not_found_handling` has no effect in `ssr` mode but is still validated. Astro 5/6 builds that emit `dist/_worker.js` fall back to static under `auto`; forcing `ssr` fails with an adapter error. Keep `/keystatic` out of `lighthouse_routes` (the admin requires authentication). PR previews render the admin, but edits are committed to the branch configured in Keystatic Cloud, not necessarily the PR branch, and content is baked at build time — saved edits reach production only after that branch is pushed and rebuilt. The deploy-hook (Workers Builds) path ignores the generated config, so commit a Wrangler config with `main` and `assets` instead. If you enable Vercel as a backup, it serves the prerendered `client/` assets only; dynamic routes such as `/keystatic` are not available there. The Lighthouse static fallback also audits `client/` for SSR builds, so Worker routes such as `/keystatic` and `/api/*` are not covered and the check can pass without a live deployment. In `ssr` mode the audit now fails when no live Cloudflare URL resolves ([#24](https://github.com/LABEIM/Shared-CICD/issues/24)). For remote Workers Builds, set `cloudflare_mode: 'ssr'` so the requirement applies.
 
 ### Next.js
 
