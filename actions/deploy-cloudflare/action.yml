@@ -492,15 +492,15 @@ runs:
               --name "$CLEAN_BRANCH" --worker-name "$CLEAN_PROJECT" --json)
           fi
 
-          # Deploy with retry logic (exponential backoff)
-          # Preview --json writes only the machine output to stdout; keep it out of
-          # the log so it stays parseable.
+          # Deploy with retry logic (exponential backoff). Preview --json writes only
+          # the machine output to stdout; keep it out of the log so it stays parseable
+          # while stderr streams live.
           do_deploy() {
             # Pinned in WRANGLER_VERSION above; bump deliberately — see RELEASING.md.
             if [ "$IS_PROD" = "true" ]; then
               npx --yes --ignore-scripts "wrangler@${WRANGLER_VERSION:?WRANGLER_VERSION must be set}" "${DEPLOY_ARGS[@]}" 2>&1 | tee cf_deploy.log
             else
-              npx --yes --ignore-scripts "wrangler@${WRANGLER_VERSION:?WRANGLER_VERSION must be set}" "${DEPLOY_ARGS[@]}" > cf_preview.json 2> cf_deploy.log
+              npx --yes --ignore-scripts "wrangler@${WRANGLER_VERSION:?WRANGLER_VERSION must be set}" "${DEPLOY_ARGS[@]}" > cf_preview.json
             fi
           }
           RETRY_DELAY=$INITIAL_RETRY_DELAY
@@ -512,8 +512,7 @@ runs:
               break
             fi
             if [ "$IS_PROD" != "true" ]; then
-              # --json keeps even the fatal message on stdout, so print both files.
-              cat cf_deploy.log
+              # --json keeps even the fatal message on stdout; stderr already streamed.
               if [ -s cf_preview.json ]; then cat cf_preview.json; fi
             fi
             echo "::endgroup::"
