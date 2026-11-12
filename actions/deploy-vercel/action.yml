@@ -54,8 +54,12 @@ runs:
     - name: Validate Vercel deployment credentials
       shell: bash
       working-directory: ${{ inputs.working_directory }}
+      env:
+        VERCEL_TOKEN: ${{ inputs.vercel_token }}
+        PROJECT_ID: ${{ inputs.project_id }}
+        ORG_ID: ${{ inputs.org_id }}
       run: |
-        if [ -z "${{ inputs.vercel_token }}" ] || [ -z "${{ inputs.project_id }}" ] || [ -z "${{ inputs.org_id }}" ]; then
+        if [ -z "$VERCEL_TOKEN" ] || [ -z "$PROJECT_ID" ] || [ -z "$ORG_ID" ]; then
           echo "::error::vercel_token, project_id, and org_id are required to deploy to Vercel."
           exit 1
         fi
@@ -82,8 +86,10 @@ runs:
       if: inputs.remote_build != 'true' && inputs.prepare_output == 'true'
       shell: bash
       working-directory: ${{ inputs.working_directory }}
+      env:
+        DIST_DIR: ${{ inputs.dist_dir }}
       run: |
-        DIST="${{ inputs.dist_dir }}"
+        DIST="$DIST_DIR"
         # Astro 7 SSR builds keep the site under client/; serve those prerendered assets.
         if [ -f "$DIST/server/wrangler.json" ] && [ -d "$DIST/client" ]; then
           DIST="$DIST/client"

@@ -68,8 +68,10 @@ runs:
       id: detect
       shell: bash
       working-directory: ${{ inputs.working_directory }}
+      env:
+        REQ_MGR: ${{ inputs.package_manager }}
+        WORK_DIR: ${{ inputs.working_directory }}
       run: |
-        REQ_MGR="${{ inputs.package_manager }}"
         RESOLVED_MGR="npm"
         CACHE_TYPE=""
         LOCKFILE_PATH=""
@@ -79,29 +81,29 @@ runs:
         elif [ "$REQ_MGR" != "auto" ] && [ -n "$REQ_MGR" ]; then
           RESOLVED_MGR="$REQ_MGR"
           case "$RESOLVED_MGR" in
-            pnpm) CACHE_TYPE="pnpm"; LOCKFILE_PATH="${{ inputs.working_directory }}/pnpm-lock.yaml" ;;
-            yarn) CACHE_TYPE="yarn"; LOCKFILE_PATH="${{ inputs.working_directory }}/yarn.lock" ;;
-            bun)  CACHE_TYPE=""; LOCKFILE_PATH="${{ inputs.working_directory }}/bun.lockb" ;;
-            *)    CACHE_TYPE="npm"; LOCKFILE_PATH="${{ inputs.working_directory }}/package-lock.json" ;;
+            pnpm) CACHE_TYPE="pnpm"; LOCKFILE_PATH="${WORK_DIR}/pnpm-lock.yaml" ;;
+            yarn) CACHE_TYPE="yarn"; LOCKFILE_PATH="${WORK_DIR}/yarn.lock" ;;
+            bun)  CACHE_TYPE=""; LOCKFILE_PATH="${WORK_DIR}/bun.lockb" ;;
+            *)    CACHE_TYPE="npm"; LOCKFILE_PATH="${WORK_DIR}/package-lock.json" ;;
           esac
         else
           # Auto-detection mode: inspect lockfiles and package.json
           if [ -f "pnpm-lock.yaml" ]; then
             RESOLVED_MGR="pnpm"
             CACHE_TYPE="pnpm"
-            LOCKFILE_PATH="${{ inputs.working_directory }}/pnpm-lock.yaml"
+            LOCKFILE_PATH="${WORK_DIR}/pnpm-lock.yaml"
           elif [ -f "bun.lockb" ] || [ -f "bun.lock" ]; then
             RESOLVED_MGR="bun"
             CACHE_TYPE=""
-            LOCKFILE_PATH="${{ inputs.working_directory }}/bun.lockb"
+            LOCKFILE_PATH="${WORK_DIR}/bun.lockb"
           elif [ -f "yarn.lock" ]; then
             RESOLVED_MGR="yarn"
             CACHE_TYPE="yarn"
-            LOCKFILE_PATH="${{ inputs.working_directory }}/yarn.lock"
+            LOCKFILE_PATH="${WORK_DIR}/yarn.lock"
           elif [ -f "package-lock.json" ] || [ -f "npm-shrinkwrap.json" ]; then
             RESOLVED_MGR="npm"
             CACHE_TYPE="npm"
-            LOCKFILE_PATH="${{ inputs.working_directory }}/package-lock.json"
+            LOCKFILE_PATH="${WORK_DIR}/package-lock.json"
           elif [ ! -f "package.json" ]; then
             RESOLVED_MGR="none"
           else
@@ -140,8 +142,9 @@ runs:
     - name: Install dependencies
       shell: bash
       working-directory: ${{ inputs.working_directory }}
+      env:
+        INSTALL_CMD: ${{ inputs.install_command }}
       run: |
-        INSTALL_CMD="${{ inputs.install_command }}"
         PKG_MGR="${{ steps.detect.outputs.package_manager }}"
 
         if [ "$INSTALL_CMD" = "none" ] || [ "$INSTALL_CMD" = "false" ] || [ "$INSTALL_CMD" = "skip" ] || [ "$PKG_MGR" = "none" ] || [ "$PKG_MGR" = "static" ]; then
@@ -192,17 +195,20 @@ runs:
       if: inputs.check_command != ''
       shell: bash
       working-directory: ${{ inputs.working_directory }}
+      env:
+        CHECK_CMD: ${{ inputs.check_command }}
       run: |
-        echo "Running diagnostics check: ${{ inputs.check_command }}"
-        ${{ inputs.check_command }}
+        echo "Running diagnostics check: $CHECK_CMD"
+        eval "$CHECK_CMD"
 
     - name: Build static site export
       id: build
       shell: bash
       working-directory: ${{ inputs.working_directory }}
+      env:
+        BUILD_CMD: ${{ inputs.build_command }}
       run: |
         BUILD_START=$(date +%s)
-        BUILD_CMD="${{ inputs.build_command }}"
         PKG_MGR="${{ steps.detect.outputs.package_manager }}"
 
         if [ "$BUILD_CMD" = "none" ] || [ "$BUILD_CMD" = "false" ] || [ "$BUILD_CMD" = "skip" ] || [ -z "$BUILD_CMD" ]; then
@@ -237,8 +243,8 @@ runs:
         BRANCH_NAME: ${{ github.head_ref || github.ref_name }}
         REPO_NAME: ${{ github.repository }}
         PROJECT_NAME: ${{ inputs.project_name }}
+        REQ_DIR: ${{ inputs.dist_dir }}
       run: |
-        REQ_DIR="${{ inputs.dist_dir }}"
         FINAL_DIR="$REQ_DIR"
 
         if [ "$REQ_DIR" = "auto" ] || [ ! -d "$REQ_DIR" ] || [ -z "$(ls -A "$REQ_DIR" 2>/dev/null)" ]; then
