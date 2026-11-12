@@ -2,7 +2,11 @@ name: Release Tag Manager
 
 on:
   release:
-    types: [published]
+    types: [released]
+
+concurrency:
+  group: release-tagger
+  cancel-in-progress: false
 
 permissions:
   contents: write
@@ -32,6 +36,23 @@ jobs:
           if [ -z "${MAJOR_VERSION}" ]; then
             echo "Tag '${TAG}' is not in semantic version format (e.g. v1.0.0). Skipping floating tag update."
             exit 0
+          fi
+
+          # Only final releases count: a prerelease (e.g. v2.4.0-rc.1) sorts above its
+          # final version under `sort -V` and would otherwise block the real release.
+          if ! printf '%s' "${TAG}" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "Tag '${TAG}' is not a final semantic version; leaving '${MAJOR_VERSION}' in place."
+            exit 0
+          fi
+
+          # A published older version must not drag every consumer backwards.
+          CURRENT=$(git tag --list "${MAJOR_VERSION}.*" | grep -E "^${MAJOR_VERSION}\.[0-9]+\.[0-9]+$" | sort -V | tail -1)
+          if [ -n "${CURRENT}" ]; then
+            NEWEST=$(printf '%s\n%s\n' "${CURRENT}" "${TAG}" | sort -V | tail -1)
+            if [ "${NEWEST}" != "${TAG}" ]; then
+              echo "Tag '${TAG}' is not newer than '${CURRENT}'; leaving '${MAJOR_VERSION}' in place."
+              exit 0
+            fi
           fi
 
           echo "Updating floating major tag '${MAJOR_VERSION}' to point to '${TAG}'..."

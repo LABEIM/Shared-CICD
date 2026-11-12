@@ -81,10 +81,9 @@ runs:
         BRANCH_NAME="${RAW_HEAD_REF:-$RAW_REF_NAME}"
         CLEAN_BRANCH=$(echo "$BRANCH_NAME" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g; s/^-//; s/-$//')
         IS_PROD="false"
-        if [ "${GITHUB_EVENT_NAME:-}" != "pull_request" ]; then
-          if [ "$BRANCH_NAME" = "$PROD_BRANCH" ] || [ "$CLEAN_BRANCH" = "main" ] || [ "$CLEAN_BRANCH" = "master" ]; then
-            IS_PROD="true"
-          fi
+        if [ "${GITHUB_EVENT_NAME:-}" != "pull_request" ] && [ "${GITHUB_EVENT_NAME:-}" != "pull_request_target" ] \
+          && [ "${GITHUB_REF_TYPE:-}" = "branch" ] && [ "$BRANCH_NAME" = "$PROD_BRANCH" ]; then
+          IS_PROD="true"
         fi
 
         RESOLVED_PROJECT="${PROJECT_NAME:-${REPO_NAME#*/}}"
@@ -161,7 +160,8 @@ runs:
           TARGET_BRANCH="${HOOK_BRANCH:-$BRANCH_NAME}"
           TARGET_WORKER=$(printf '%s' "${HOOK_WORKER:-$CLEAN_PROJECT}" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g; s/^-//; s/-$//')
           TARGET_CLEAN_BRANCH=$(printf '%s' "$TARGET_BRANCH" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g; s/^-//; s/-$//')
-          if [ "$TARGET_BRANCH" = "$PROD_BRANCH" ] || [ "$TARGET_CLEAN_BRANCH" = "main" ] || [ "$TARGET_CLEAN_BRANCH" = "master" ]; then
+          if [ "${GITHUB_EVENT_NAME:-}" != "pull_request" ] && [ "${GITHUB_EVENT_NAME:-}" != "pull_request_target" ] \
+            && [ "${GITHUB_REF_TYPE:-}" = "branch" ] && [ "$TARGET_BRANCH" = "$PROD_BRANCH" ]; then
             IS_PROD="true"
           else
             IS_PROD="false"
@@ -203,6 +203,11 @@ runs:
           if [ "$RESOLVED_MODE" = "static" ] && { [ ! -d "$DIST_DIR" ] || [ -z "$(ls -A "$DIST_DIR" 2>/dev/null)" ] || [ ! -f "$DIST_DIR/index.html" ]; }; then
             echo "No deployable HTML found in '$DIST_DIR'. Bootstrapping fallback placeholder..."
             mkdir -p "$DIST_DIR"
+
+            escape_html() {
+              printf '%s' "$1" | sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g; s/"/\&quot;/g'
+            }
+            BRANCH_NAME_HTML=$(escape_html "$BRANCH_NAME")
 
             cat << HTML_EOF > "${DIST_DIR}/index.html"
             <!DOCTYPE html>
@@ -367,7 +372,7 @@ runs:
             </div>
             <div class="info-item">
             <div class="info-label">Branch</div>
-            <div class="info-value">${BRANCH_NAME}</div>
+            <div class="info-value">${BRANCH_NAME_HTML}</div>
             </div>
             <div class="info-item">
             <div class="info-label">Target Platform</div>
@@ -530,7 +535,8 @@ runs:
           echo "| Detail | Value |"
           echo "| :--- | :--- |"
           echo "| URL | ${DEPLOY_URL} |"
-          echo "| Branch | \`${TARGET_BRANCH}\` |"
+          BRANCH_LABEL=$(printf '%s' "$TARGET_BRANCH" | tr -d '|`')
+          echo "| Branch | \`${BRANCH_LABEL}\` |"
           echo "| Build Mode | ${BUILD_TYPE} |"
           echo "| Mode | ${MODE} |"
           echo "| Status | ${STATUS} |"
