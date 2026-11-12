@@ -331,6 +331,7 @@ jobs:
           project_id: ${{ inputs.vercel_project_id }}
           org_id: ${{ inputs.vercel_org_id }}
           vercel_token: ${{ secrets.VERCEL_TOKEN }}
+          enable_previews: ${{ inputs.enable_previews }}
           dist_dir: ${{ (inputs.build_location == 'github' || inputs.build_location == '' || inputs.build_location == 'auto') && '_dist_assets' || inputs.dist_dir }}
           remote_build: ${{ inputs.build_location == 'vercel' }}
           prepare_output: ${{ inputs.build_location == 'github' || inputs.build_location == '' || inputs.build_location == 'auto' }}
