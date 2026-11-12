@@ -89,6 +89,9 @@ runs:
         RESOLVED_PROJECT="${PROJECT_NAME:-${REPO_NAME#*/}}"
         CLEAN_PROJECT=$(echo "$RESOLVED_PROJECT" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g; s/^-//; s/-$//')
 
+        # The only URL shape allowed to leave this action (PR comments, summaries).
+        WORKERS_URL_RE='^https://[a-z0-9-]+(\.[a-z0-9-]+)*\.workers\.dev$'
+
         case "$NOT_FOUND_HANDLING" in
           auto|single-page-application|404-page) ;;
           *)
@@ -464,14 +467,28 @@ runs:
           fi
 
           # Deploy with retry logic (exponential backoff)
-          : > cf_deploy.log
+          # Preview --json writes only the machine output to stdout; keep it out of
+          # the log so it stays parseable.
+          do_deploy() {
+            # Pinned; bump deliberately — see RELEASING.md.
+            if [ "$IS_PROD" = "true" ]; then
+              npx --yes wrangler@4.160.0 "${DEPLOY_ARGS[@]}" 2>&1 | tee cf_deploy.log
+            else
+              npx --yes wrangler@4.160.0 "${DEPLOY_ARGS[@]}" > cf_preview.json 2> cf_deploy.log
+            fi
+          }
           RETRY_DELAY=$INITIAL_RETRY_DELAY
           for ATTEMPT in $(seq 1 $MAX_RETRIES); do
             echo "::group::Cloudflare Workers deployment attempt $ATTEMPT/$MAX_RETRIES"
-            if npx --yes wrangler@4.160.0 "${DEPLOY_ARGS[@]}" 2>&1 | tee cf_deploy.log; then
+            if do_deploy; then
               echo "::endgroup::"
               echo "Deployment succeeded on attempt $ATTEMPT"
               break
+            fi
+            if [ "$IS_PROD" != "true" ]; then
+              # --json keeps even the fatal message on stdout, so print both files.
+              cat cf_deploy.log
+              if [ -s cf_preview.json ]; then cat cf_preview.json; fi
             fi
             echo "::endgroup::"
             if [ "$ATTEMPT" -lt "$MAX_RETRIES" ]; then
@@ -484,19 +501,40 @@ runs:
             fi
           done
 
-          # Prefer the host we own; Wrangler also prints version/deployment URLs.
+          # Cloudflare's reported URL beats anything reconstructed from output. Pick
+          # the first workers.dev URL, so a custom-domain Preview URL earlier in the
+          # array does not hide the workers.dev alias.
           DEPLOY_URL=""
-          URL_PREFIX="$(workers_host "$CLEAN_PROJECT" "$CLEAN_BRANCH")."
-          while IFS= read -r CANDIDATE; do
-            case "${CANDIDATE#https://}" in
-              "$URL_PREFIX"*) DEPLOY_URL="$CANDIDATE"; break ;;
-            esac
-          done < <(sed 's/\x1B\[[0-9;]*[a-zA-Z]//g' cf_deploy.log \
-                   | grep -oP 'https://[a-zA-Z0-9.-]+\.workers\.dev' | sort -u || true)
+          if [ "$IS_PROD" != "true" ] && [ -s cf_preview.json ]; then
+            DEPLOY_URL=$(jq -r --arg re "$WORKERS_URL_RE" '[(.preview.urls // [])[], (.deployment.urls // [])[]]
+              | map(select(type == "string" and test($re)))
+              | .[0] // empty' cf_preview.json 2>/dev/null || true)
+          fi
 
-          # Fallback: resolve the account's workers.dev subdomain from the API.
+          # Production has no JSON, so its URL still comes from the log. Preview runs
+          # are JSON-only: --json suppresses the human URL lines there.
+          if [ "$IS_PROD" = "true" ]; then
+            URL_PREFIX="$(workers_host "$CLEAN_PROJECT" "$CLEAN_BRANCH")."
+            while IFS= read -r CANDIDATE; do
+              case "${CANDIDATE#https://}" in
+                "$URL_PREFIX"*) DEPLOY_URL="$CANDIDATE"; break ;;
+              esac
+            done < <(sed 's/\x1B\[[0-9;]*[a-zA-Z]//g' cf_deploy.log \
+                     | grep -oP 'https://[a-zA-Z0-9.-]+\.workers\.dev' | sort -u || true)
+          fi
+
+          # Fallback: resolve the account's workers.dev subdomain from the API, then
+          # prove the constructed URL exists before anything links to it.
           if [ -z "$DEPLOY_URL" ] && SUBDOMAIN=$(resolve_subdomain) && [ -n "$SUBDOMAIN" ]; then
-            DEPLOY_URL="https://$(workers_host "$CLEAN_PROJECT" "$CLEAN_BRANCH").${SUBDOMAIN}.workers.dev"
+            CANDIDATE="https://$(workers_host "$CLEAN_PROJECT" "$CLEAN_BRANCH").${SUBDOMAIN}.workers.dev"
+            for URL_ATTEMPT in 1 2 3; do
+              CODE=$(curl -sS -o /dev/null -L --max-time 10 --proto '=https' -w '%{http_code}' "$CANDIDATE" 2>/dev/null) || CODE=000
+              case "$CODE" in 2*|3*) DEPLOY_URL="$CANDIDATE"; break ;; esac
+              if [ "$URL_ATTEMPT" -lt 3 ]; then sleep 2; fi
+            done
+            if [ -z "$DEPLOY_URL" ]; then
+              echo "::warning::Constructed URL '$CANDIDATE' did not respond; leaving deploy_url unset rather than linking a dead URL."
+            fi
           fi
 
           if [ -z "$DEPLOY_URL" ]; then
@@ -505,7 +543,7 @@ runs:
         fi
 
         # Only a workers.dev URL may leave this action (PR comments, summaries).
-        if ! printf '%s' "$DEPLOY_URL" | grep -Eq '^https://[a-z0-9-]+(\.[a-z0-9-]+)*\.workers\.dev$'; then
+        if ! [[ "$DEPLOY_URL" =~ $WORKERS_URL_RE ]]; then
           DEPLOY_URL=""
         fi
 
