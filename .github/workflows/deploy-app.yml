@@ -399,6 +399,22 @@ jobs:
           echo "::error::A bootstrap placeholder was built or deployed; Lighthouse will not audit it. Fix dist_dir or build_command."
           exit 1
 
+      - name: Report a missing live URL instead of a Lighthouse regression
+        if: >-
+          needs.deploy-cloudflare.outputs.deploy_url == '' &&
+          (inputs.cloudflare_mode == 'ssr' || needs.deploy-cloudflare.outputs.deployment_mode == 'ssr')
+        shell: bash
+        env:
+          DEPLOY_RESULT: ${{ needs.deploy-cloudflare.result }}
+        run: |
+          echo "::error title=Lighthouse audit skipped (no live URL)::Cloudflare deploy result: '${DEPLOY_RESULT}'. No live URL was resolved for the ssr build, so Lighthouse did not run; this is not a Lighthouse score failure."
+          {
+            echo "### Lighthouse audit skipped"
+            echo ""
+            echo "The \`ssr\` deployment did not resolve a live URL (Cloudflare job: \`${DEPLOY_RESULT}\`). Lighthouse was not run, so this job reports no score."
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit 1
+
       - name: Run Lighthouse audit and report
         uses: LABEIM/shared-ci-cd/actions/lighthouse-audit@v2
         with:
