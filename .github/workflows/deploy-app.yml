@@ -190,7 +190,8 @@ jobs:
 
       # The reusable workflow runs in consumer repositories, where `./actions/*` resolves
       # against the consumer's checkout. Reference this repository's actions explicitly and
-      # keep `@v2` in sync with the floating release tag.
+      # keep `@v2` in sync with the floating release tag. Fork owners must edit these five
+      # refs; `uses:` cannot take an input, so the workflow cannot re-point itself.
       - name: Setup, build, and upload static app
         id: build
         uses: LABEIM/shared-ci-cd/actions/setup-and-build@v2

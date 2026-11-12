@@ -100,6 +100,17 @@ jobs:
 
 Replace `LABEIM/shared-ci-cd` with your fork or organization path if different.
 
+> [!WARNING]
+> Changing your caller's `uses:` line is not enough on a fork. The reusable workflow hardcodes its own composite action refs, because `uses:` cannot take an input, so a fork must also edit all five in `.github/workflows/deploy-app.yml`:
+>
+> - `LABEIM/shared-ci-cd/actions/setup-and-build@v2`
+> - `LABEIM/shared-ci-cd/actions/deploy-cloudflare@v2`
+> - `LABEIM/shared-ci-cd/actions/deploy-vercel@v2`
+> - `LABEIM/shared-ci-cd/actions/pr-preview-comment@v2`
+> - `LABEIM/shared-ci-cd/actions/lighthouse-audit@v2`
+>
+> Otherwise the fork runs upstream's action code at the mutable `@v2` tag with the fork's own Cloudflare and Vercel tokens.
+
 ### 3. Push
 
 Push to `main` for a production deployment, or open a pull request for a preview deployment and an automatic PR comment.
