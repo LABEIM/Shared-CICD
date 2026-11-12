@@ -465,14 +465,24 @@ runs:
 
           # Deploy with retry logic (exponential backoff)
           : > cf_deploy.log
+          # Preview --json writes only the machine output to stdout; keep it out of
+          # the log so it stays parseable.
+          do_deploy() {
+            if [ "$IS_PROD" = "true" ]; then
+              npx --yes wrangler@4.160.0 "${DEPLOY_ARGS[@]}" 2>&1 | tee cf_deploy.log
+            else
+              npx --yes wrangler@4.160.0 "${DEPLOY_ARGS[@]}" > cf_preview.json 2> cf_deploy.log
+            fi
+          }
           RETRY_DELAY=$INITIAL_RETRY_DELAY
           for ATTEMPT in $(seq 1 $MAX_RETRIES); do
             echo "::group::Cloudflare Workers deployment attempt $ATTEMPT/$MAX_RETRIES"
-            if npx --yes wrangler@4.160.0 "${DEPLOY_ARGS[@]}" 2>&1 | tee cf_deploy.log; then
+            if do_deploy; then
               echo "::endgroup::"
               echo "Deployment succeeded on attempt $ATTEMPT"
               break
             fi
+            cat cf_deploy.log
             echo "::endgroup::"
             if [ "$ATTEMPT" -lt "$MAX_RETRIES" ]; then
               echo "Attempt $ATTEMPT failed, retrying in ${RETRY_DELAY}s..."
@@ -484,19 +494,36 @@ runs:
             fi
           done
 
-          # Prefer the host we own; Wrangler also prints version/deployment URLs.
+          # Cloudflare's reported URL beats anything reconstructed from output.
           DEPLOY_URL=""
-          URL_PREFIX="$(workers_host "$CLEAN_PROJECT" "$CLEAN_BRANCH")."
-          while IFS= read -r CANDIDATE; do
-            case "${CANDIDATE#https://}" in
-              "$URL_PREFIX"*) DEPLOY_URL="$CANDIDATE"; break ;;
-            esac
-          done < <(sed 's/\x1B\[[0-9;]*[a-zA-Z]//g' cf_deploy.log \
-                   | grep -oP 'https://[a-zA-Z0-9.-]+\.workers\.dev' | sort -u || true)
+          if [ "$IS_PROD" != "true" ] && [ -s cf_preview.json ]; then
+            DEPLOY_URL=$(jq -r '.preview.urls[0] // .deployment.urls[0] // empty' cf_preview.json 2>/dev/null || true)
+          fi
 
-          # Fallback: resolve the account's workers.dev subdomain from the API.
+          # Production has no JSON, so its URL is still read from the log. Preview
+          # logs carry no human URL lines in --json mode; this is a no-op there.
+          if [ -z "$DEPLOY_URL" ]; then
+            URL_PREFIX="$(workers_host "$CLEAN_PROJECT" "$CLEAN_BRANCH")."
+            while IFS= read -r CANDIDATE; do
+              case "${CANDIDATE#https://}" in
+                "$URL_PREFIX"*) DEPLOY_URL="$CANDIDATE"; break ;;
+              esac
+            done < <(sed 's/\x1B\[[0-9;]*[a-zA-Z]//g' cf_deploy.log \
+                     | grep -oP 'https://[a-zA-Z0-9.-]+\.workers\.dev' | sort -u || true)
+          fi
+
+          # Fallback: resolve the account's workers.dev subdomain from the API, then
+          # prove the constructed URL exists before anything links to it.
           if [ -z "$DEPLOY_URL" ] && SUBDOMAIN=$(resolve_subdomain) && [ -n "$SUBDOMAIN" ]; then
-            DEPLOY_URL="https://$(workers_host "$CLEAN_PROJECT" "$CLEAN_BRANCH").${SUBDOMAIN}.workers.dev"
+            CANDIDATE="https://$(workers_host "$CLEAN_PROJECT" "$CLEAN_BRANCH").${SUBDOMAIN}.workers.dev"
+            for _ in 1 2 3; do
+              CODE=$(curl -sS -o /dev/null -L --max-time 10 --proto '=https' -w '%{http_code}' "$CANDIDATE" 2>/dev/null || echo 000)
+              case "$CODE" in 2*|3*) DEPLOY_URL="$CANDIDATE"; break ;; esac
+              sleep 2
+            done
+            if [ -z "$DEPLOY_URL" ]; then
+              echo "::warning::Constructed URL '$CANDIDATE' did not respond; leaving deploy_url unset rather than linking a dead URL."
+            fi
           fi
 
           if [ -z "$DEPLOY_URL" ]; then
