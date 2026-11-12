@@ -89,6 +89,9 @@ runs:
         RESOLVED_PROJECT="${PROJECT_NAME:-${REPO_NAME#*/}}"
         CLEAN_PROJECT=$(echo "$RESOLVED_PROJECT" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g; s/^-//; s/-$//')
 
+        # The only URL shape allowed to leave this action (PR comments, summaries).
+        WORKERS_URL_RE='^https://[a-z0-9-]+(\.[a-z0-9-]+)*\.workers\.dev$'
+
         case "$NOT_FOUND_HANDLING" in
           auto|single-page-application|404-page) ;;
           *)
@@ -503,14 +506,14 @@ runs:
           # array does not hide the workers.dev alias.
           DEPLOY_URL=""
           if [ "$IS_PROD" != "true" ] && [ -s cf_preview.json ]; then
-            DEPLOY_URL=$(jq -r '[(.preview.urls // [])[], (.deployment.urls // [])[]]
-              | map(select(type == "string" and test("^https://[a-z0-9-]+(\\.[a-z0-9-]+)*\\.workers\\.dev$")))
-              | .[0] // empty' cf_preview.json 2>/dev/null | head -n1 || true)
+            DEPLOY_URL=$(jq -r --arg re "$WORKERS_URL_RE" '[(.preview.urls // [])[], (.deployment.urls // [])[]]
+              | map(select(type == "string" and test($re)))
+              | .[0] // empty' cf_preview.json 2>/dev/null || true)
           fi
 
           # Production has no JSON, so its URL still comes from the log. Preview runs
           # are JSON-only: --json suppresses the human URL lines there.
-          if [ -z "$DEPLOY_URL" ] && [ "$IS_PROD" = "true" ]; then
+          if [ "$IS_PROD" = "true" ]; then
             URL_PREFIX="$(workers_host "$CLEAN_PROJECT" "$CLEAN_BRANCH")."
             while IFS= read -r CANDIDATE; do
               case "${CANDIDATE#https://}" in
@@ -540,7 +543,7 @@ runs:
         fi
 
         # Only a workers.dev URL may leave this action (PR comments, summaries).
-        if ! [[ "$DEPLOY_URL" =~ ^https://[a-z0-9-]+(\.[a-z0-9-]+)*\.workers\.dev$ ]]; then
+        if ! [[ "$DEPLOY_URL" =~ $WORKERS_URL_RE ]]; then
           DEPLOY_URL=""
         fi
 

@@ -233,7 +233,7 @@ jobs:
       # but actionlint rejects it, so this notice is unconditional.
       - name: Note pipeline provenance
         shell: bash
-        run: echo "::notice::This pipeline runs composite actions from LABEIM/shared-ci-cd@v2; a fork must re-point all five LABEIM/shared-ci-cd/actions/*@v2 refs in its own copy of deploy-app.yml."
+        run: echo "::notice::This pipeline runs composite actions from LABEIM/shared-ci-cd@v2; a fork must re-point every LABEIM/shared-ci-cd/actions/*@v2 ref in its own copy of deploy-app.yml."
 
       - name: Checkout repository (if skipping GitHub build)
         if: inputs.build_location != 'github' && inputs.build_location != '' && inputs.build_location != 'auto'
@@ -292,7 +292,7 @@ jobs:
       # these five refs itself, and the precise check fails actionlint.
       - name: Note pipeline provenance
         shell: bash
-        run: echo "::notice::This pipeline runs composite actions from LABEIM/shared-ci-cd@v2; a fork must re-point all five LABEIM/shared-ci-cd/actions/*@v2 refs in its own copy of deploy-app.yml."
+        run: echo "::notice::This pipeline runs composite actions from LABEIM/shared-ci-cd@v2; a fork must re-point every LABEIM/shared-ci-cd/actions/*@v2 ref in its own copy of deploy-app.yml."
 
       - name: Checkout repository (for remote build / standalone deploy)
         if: inputs.build_location == 'vercel' || inputs.build_location == 'none' || inputs.build_location == 'skip'

@@ -19,8 +19,8 @@ updates:
         patterns:
           - "*"
 
-  # A non-root directory is scanned for *.yml directly, so these are the only way
-  # Dependabot sees the `uses:` refs inside a composite action.
+  # Composite actions are not covered by the root entry, so each action directory
+  # that contains `uses:` refs is listed explicitly.
   - package-ecosystem: "github-actions"
     directory: "/actions/setup-and-build"
     schedule:
@@ -33,6 +33,10 @@ updates:
       - "dependencies"
       - "ci"
       - "automated"
+    groups:
+      github-actions:
+        patterns:
+          - "*"
 
   - package-ecosystem: "github-actions"
     directory: "/actions/lighthouse-audit"
@@ -46,6 +50,10 @@ updates:
       - "dependencies"
       - "ci"
       - "automated"
+    groups:
+      github-actions:
+        patterns:
+          - "*"
 
   - package-ecosystem: "github-actions"
     directory: "/actions/pr-preview-comment"
@@ -59,3 +67,7 @@ updates:
       - "dependencies"
       - "ci"
       - "automated"
+    groups:
+      github-actions:
+        patterns:
+          - "*"
