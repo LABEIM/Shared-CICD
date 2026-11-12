@@ -142,3 +142,15 @@ Before tagging and publishing any release, verify:
 - [ ] Example workflows in `examples/` are up to date.
 - [ ] CI validation checks on `main` are green.
 - [ ] Floating major tag for the release (`v2`) has been pushed.
+- [ ] The `wrangler` and `vercel` pins are current (see below).
+
+### Version pins
+
+`wrangler` and `vercel` are pinned inside composite-action shell scripts, so neither Dependabot nor the action review will ever bump them. Before tagging:
+
+```bash
+grep -rn 'wrangler@\|vercel@' actions/*/action.yml
+npm view wrangler version && npm view vercel version
+```
+
+Bump deliberately, in a separate commit, and re-run the `deploy-cloudflare` and `deploy-vercel` checks. A `vercel` major can change the Build Output API behaviour; a `wrangler` major can change the Preview config shape.

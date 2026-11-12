@@ -468,6 +468,7 @@ runs:
           # Preview --json writes only the machine output to stdout; keep it out of
           # the log so it stays parseable.
           do_deploy() {
+            # Pinned; bump deliberately — see RELEASING.md.
             if [ "$IS_PROD" = "true" ]; then
               npx --yes wrangler@4.160.0 "${DEPLOY_ARGS[@]}" 2>&1 | tee cf_deploy.log
             else
