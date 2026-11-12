@@ -70,6 +70,11 @@ on:
         required: false
         type: string
         default: 'auto'
+      cloudflare_account_id:
+        description: 'Cloudflare Account ID (non-secret option; falls back to CLOUDFLARE_ACCOUNT_ID)'
+        required: false
+        type: string
+        default: ''
 
       # Vercel Target
       enable_vercel:
@@ -230,7 +235,7 @@ jobs:
           production_branch: ${{ inputs.production_branch }}
           cloudflare_mode: ${{ inputs.cloudflare_mode }}
           api_token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          account_id: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          account_id: ${{ inputs.cloudflare_account_id || secrets.CLOUDFLARE_ACCOUNT_ID }}
           deploy_hook_url: ${{ secrets.CLOUDFLARE_DEPLOY_HOOK_URL }}
 
   # ──────────────────────────────────────────────────────────────────────
