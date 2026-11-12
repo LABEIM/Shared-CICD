@@ -49,6 +49,13 @@ on:
         type: string
         default: 'dist'
 
+      # Production target (Cloudflare and Vercel)
+      production_branch:
+        description: 'Branch that deploys to production on both Cloudflare and Vercel; other branches deploy previews'
+        required: false
+        type: string
+        default: 'main'
+
       # Cloudflare Target
       enable_cloudflare:
         description: 'Enable Cloudflare Workers deployment'
@@ -60,11 +67,6 @@ on:
         required: false
         type: string
         default: ''
-      production_branch:
-        description: 'Production branch name'
-        required: false
-        type: string
-        default: 'main'
       cloudflare_mode:
         description: 'Cloudflare deployment shape: "auto", "static", or "ssr"'
         required: false
@@ -138,6 +140,8 @@ jobs:
     if: inputs.build_location == 'github' || inputs.build_location == '' || inputs.build_location == 'auto'
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    permissions:
+      contents: read
     outputs:
       artifact_hash: ${{ steps.build.outputs.artifact_hash }}
       build_duration: ${{ steps.build.outputs.build_duration }}
@@ -145,6 +149,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - name: Export PUBLIC_* values for build
         shell: bash
@@ -154,6 +160,19 @@ jobs:
         run: |
           set -euo pipefail
           DELIM="__GH_ENV_$(openssl rand -hex 16)__"
+
+          # A name defined as both a secret and a non-empty variable with a different
+          # value would silently change the build config, so fail instead of guessing.
+          conflicts=$(printf '%s' "$ALL_SECRETS_JSON" \
+            | jq -r --argjson v "$ALL_VARS_JSON" '
+                [ to_entries[]
+                  | select(.key | startswith("PUBLIC_"))
+                  | select(.value != "" and $v[.key] != null and $v[.key] != "" and $v[.key] != .value)
+                  | .key ] | .[]')
+          if [ -n "$conflicts" ]; then
+            echo "::error::PUBLIC_* defined as both a secret and a non-empty variable with different values: $(printf '%s' "$conflicts" | tr '\n' ' ')"
+            exit 1
+          fi
 
           # Only PUBLIC_* values are exported. Variables win over secrets; an empty variable does not.
           printf '%s' "$ALL_SECRETS_JSON" \
@@ -173,7 +192,8 @@ jobs:
 
       # The reusable workflow runs in consumer repositories, where `./actions/*` resolves
       # against the consumer's checkout. Reference this repository's actions explicitly and
-      # keep `@v2` in sync with the floating release tag.
+      # keep `@v2` in sync with the floating release tag. Fork owners must edit these five
+      # refs; `uses:` cannot take an input, so the workflow cannot re-point itself.
       - name: Setup, build, and upload static app
         id: build
         uses: LABEIM/shared-ci-cd/actions/setup-and-build@v2
@@ -203,7 +223,7 @@ jobs:
       contents: read
       deployments: write
     environment:
-      name: ${{ github.event_name == 'pull_request' && 'cloudflare-preview' || 'cloudflare-production' }}
+      name: ${{ github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.ref_type == 'branch' && (github.head_ref || github.ref_name) == inputs.production_branch && 'cloudflare-production' || 'cloudflare-preview' }}
       url: ${{ steps.deploy_cf.outputs.deploy_url }}
     outputs:
       deploy_url: ${{ steps.deploy_cf.outputs.deploy_url }}
@@ -211,6 +231,8 @@ jobs:
       - name: Checkout repository (if skipping GitHub build)
         if: inputs.build_location != 'github' && inputs.build_location != '' && inputs.build_location != 'auto'
         uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - name: Download dist build artifact (if built on GitHub)
         if: inputs.build_location == 'github' || inputs.build_location == '' || inputs.build_location == 'auto'
@@ -252,10 +274,9 @@ jobs:
     timeout-minutes: 10
     permissions:
       contents: read
-      pull-requests: write
       deployments: write
     environment:
-      name: ${{ github.event_name == 'pull_request' && 'vercel-preview' || 'vercel-production' }}
+      name: ${{ github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.ref_type == 'branch' && (github.head_ref || github.ref_name) == inputs.production_branch && 'vercel-production' || 'vercel-preview' }}
       url: ${{ steps.resolve_url.outputs.deploy_url }}
     outputs:
       deploy_url: ${{ steps.resolve_url.outputs.deploy_url }}
@@ -263,6 +284,8 @@ jobs:
       - name: Checkout repository (for remote build / standalone deploy)
         if: inputs.build_location == 'vercel' || inputs.build_location == 'none' || inputs.build_location == 'skip'
         uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - name: Download dist build artifact (for prebuilt GitHub build)
         if: inputs.build_location == 'github' || inputs.build_location == '' || inputs.build_location == 'auto'
@@ -282,6 +305,7 @@ jobs:
           dist_dir: ${{ (inputs.build_location == 'github' || inputs.build_location == '' || inputs.build_location == 'auto') && '_dist_assets' || inputs.dist_dir }}
           remote_build: ${{ inputs.build_location == 'vercel' }}
           prepare_output: ${{ inputs.build_location == 'github' || inputs.build_location == '' || inputs.build_location == 'auto' }}
+          production_branch: ${{ inputs.production_branch }}
 
   # ──────────────────────────────────────────────────────────────────────
   # Stage 3: Post PR Preview Comment (Optional)
@@ -324,6 +348,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - name: Download dist build artifact (if available)
         if: inputs.build_location == 'github' || inputs.build_location == '' || inputs.build_location == 'auto'

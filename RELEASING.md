@@ -82,6 +82,16 @@ When fixing bugs, updating action dependencies, or adding optional features:
 
 > **Result**: All downstream repositories referencing `@v2` will automatically inherit the update on their next workflow run without modifying any code.
 
+### v2.3.0 behavior changes
+
+Record these in the release notes, because consumers pinned to `@v2` inherit them without editing anything:
+
+- Production requires a non-`pull_request` run of a branch whose ref equals `production_branch` (default `main`), on both Cloudflare and Vercel. Previously Cloudflare also treated `main`/`master` as production regardless of the input, and Vercel treated every non-PR event as production.
+- Vercel no longer deploys production from arbitrary branches, tags, or release events; those deploy previews.
+- The GitHub Environment (`*-production` / `*-preview`) follows the same rule, so a tag, release, or `workflow_dispatch`-on-a-tag run now uses the `*-preview` environment. Consumers that scope deployment tokens to the `*-production` environment only must add them to `*-preview` as well.
+- The build job runs with `contents: read` and `persist-credentials: false`. A `build_command` that pushes to the repository, or calls `gh`, now fails.
+- A `PUBLIC_*` name defined as both a secret and a non-empty variable with a different value now fails the build instead of silently preferring the variable.
+
 ---
 
 ### Scenario C: Releasing a Breaking Change (`v2.0.0`)
@@ -115,41 +125,11 @@ When making breaking changes (e.g. altering required parameters or dropping supp
 
 ---
 
-## 3. Automated Tag Management (Optional)
+## 3. Automated Tag Management
 
-To automate updating the floating major tag (`v2`) whenever you publish a release via the GitHub Web UI, you can add `.github/workflows/release-tagger.yml`:
+This repository ships `.github/workflows/release-tagger.yml`. It runs on `release: released` (not `published`, so a prerelease cannot move the floating tag) and skips the move when the published version is not greater than the highest existing tag in that major series. Publishing an older release therefore cannot drag `@v2` backwards.
 
-```yaml
-name: Release Tag Manager
-
-on:
-  release:
-    types: [published]
-
-permissions:
-  contents: write
-
-jobs:
-  update-major-tag:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v5
-        with:
-          fetch-depth: 0
-
-      - name: Update floating major tag
-        run: |
-          TAG="${{ github.event.release.tag_name }}"
-          MAJOR_VERSION=$(echo "$TAG" | grep -oP '^v[0-9]+')
-          if [ -n "$MAJOR_VERSION" ]; then
-            echo "Updating floating tag $MAJOR_VERSION to point to $TAG..."
-            git config user.name "github-actions[bot]"
-            git config user.email "github-actions[bot]@users.noreply.github.com"
-            git tag -fa "$MAJOR_VERSION" -m "Update $MAJOR_VERSION to $TAG"
-            git push origin "$MAJOR_VERSION" --force
-          fi
-```
+The workflow force-pushes only the floating major tag, never the semantic tag.
 
 ---
 

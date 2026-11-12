@@ -68,8 +68,10 @@ runs:
       id: detect
       shell: bash
       working-directory: ${{ inputs.working_directory }}
+      env:
+        REQ_MGR: ${{ inputs.package_manager }}
+        WORK_DIR: ${{ inputs.working_directory }}
       run: |
-        REQ_MGR="${{ inputs.package_manager }}"
         RESOLVED_MGR="npm"
         CACHE_TYPE=""
         LOCKFILE_PATH=""
@@ -79,29 +81,29 @@ runs:
         elif [ "$REQ_MGR" != "auto" ] && [ -n "$REQ_MGR" ]; then
           RESOLVED_MGR="$REQ_MGR"
           case "$RESOLVED_MGR" in
-            pnpm) CACHE_TYPE="pnpm"; LOCKFILE_PATH="${{ inputs.working_directory }}/pnpm-lock.yaml" ;;
-            yarn) CACHE_TYPE="yarn"; LOCKFILE_PATH="${{ inputs.working_directory }}/yarn.lock" ;;
-            bun)  CACHE_TYPE=""; LOCKFILE_PATH="${{ inputs.working_directory }}/bun.lockb" ;;
-            *)    CACHE_TYPE="npm"; LOCKFILE_PATH="${{ inputs.working_directory }}/package-lock.json" ;;
+            pnpm) CACHE_TYPE="pnpm"; LOCKFILE_PATH="${WORK_DIR}/pnpm-lock.yaml" ;;
+            yarn) CACHE_TYPE="yarn"; LOCKFILE_PATH="${WORK_DIR}/yarn.lock" ;;
+            bun)  CACHE_TYPE=""; LOCKFILE_PATH="${WORK_DIR}/bun.lockb" ;;
+            *)    CACHE_TYPE="npm"; LOCKFILE_PATH="${WORK_DIR}/package-lock.json" ;;
           esac
         else
           # Auto-detection mode: inspect lockfiles and package.json
           if [ -f "pnpm-lock.yaml" ]; then
             RESOLVED_MGR="pnpm"
             CACHE_TYPE="pnpm"
-            LOCKFILE_PATH="${{ inputs.working_directory }}/pnpm-lock.yaml"
+            LOCKFILE_PATH="${WORK_DIR}/pnpm-lock.yaml"
           elif [ -f "bun.lockb" ] || [ -f "bun.lock" ]; then
             RESOLVED_MGR="bun"
             CACHE_TYPE=""
-            LOCKFILE_PATH="${{ inputs.working_directory }}/bun.lockb"
+            LOCKFILE_PATH="${WORK_DIR}/bun.lockb"
           elif [ -f "yarn.lock" ]; then
             RESOLVED_MGR="yarn"
             CACHE_TYPE="yarn"
-            LOCKFILE_PATH="${{ inputs.working_directory }}/yarn.lock"
+            LOCKFILE_PATH="${WORK_DIR}/yarn.lock"
           elif [ -f "package-lock.json" ] || [ -f "npm-shrinkwrap.json" ]; then
             RESOLVED_MGR="npm"
             CACHE_TYPE="npm"
-            LOCKFILE_PATH="${{ inputs.working_directory }}/package-lock.json"
+            LOCKFILE_PATH="${WORK_DIR}/package-lock.json"
           elif [ ! -f "package.json" ]; then
             RESOLVED_MGR="none"
           else
@@ -140,9 +142,10 @@ runs:
     - name: Install dependencies
       shell: bash
       working-directory: ${{ inputs.working_directory }}
+      env:
+        INSTALL_CMD: ${{ inputs.install_command }}
+        PKG_MGR: ${{ steps.detect.outputs.package_manager }}
       run: |
-        INSTALL_CMD="${{ inputs.install_command }}"
-        PKG_MGR="${{ steps.detect.outputs.package_manager }}"
 
         if [ "$INSTALL_CMD" = "none" ] || [ "$INSTALL_CMD" = "false" ] || [ "$INSTALL_CMD" = "skip" ] || [ "$PKG_MGR" = "none" ] || [ "$PKG_MGR" = "static" ]; then
           echo "Dependency installation skipped explicitly or no package manager required."
@@ -192,18 +195,21 @@ runs:
       if: inputs.check_command != ''
       shell: bash
       working-directory: ${{ inputs.working_directory }}
+      env:
+        CHECK_CMD: ${{ inputs.check_command }}
       run: |
-        echo "Running diagnostics check: ${{ inputs.check_command }}"
-        ${{ inputs.check_command }}
+        echo "Running diagnostics check: $CHECK_CMD"
+        eval "$CHECK_CMD"
 
     - name: Build static site export
       id: build
       shell: bash
       working-directory: ${{ inputs.working_directory }}
+      env:
+        BUILD_CMD: ${{ inputs.build_command }}
+        PKG_MGR: ${{ steps.detect.outputs.package_manager }}
       run: |
         BUILD_START=$(date +%s)
-        BUILD_CMD="${{ inputs.build_command }}"
-        PKG_MGR="${{ steps.detect.outputs.package_manager }}"
 
         if [ "$BUILD_CMD" = "none" ] || [ "$BUILD_CMD" = "false" ] || [ "$BUILD_CMD" = "skip" ] || [ -z "$BUILD_CMD" ]; then
           echo "Static project detected: build step skipped."
@@ -237,8 +243,8 @@ runs:
         BRANCH_NAME: ${{ github.head_ref || github.ref_name }}
         REPO_NAME: ${{ github.repository }}
         PROJECT_NAME: ${{ inputs.project_name }}
+        REQ_DIR: ${{ inputs.dist_dir }}
       run: |
-        REQ_DIR="${{ inputs.dist_dir }}"
         FINAL_DIR="$REQ_DIR"
 
         if [ "$REQ_DIR" = "auto" ] || [ ! -d "$REQ_DIR" ] || [ -z "$(ls -A "$REQ_DIR" 2>/dev/null)" ]; then
@@ -258,12 +264,17 @@ runs:
           elif [ -d "public" ] && [ "$(ls -A public 2>/dev/null)" ]; then
             echo "Auto-staging static files from 'public/' into 'dist/'..."
             mkdir -p dist
-            cp -r public/. dist/
+            find public -mindepth 1 -maxdepth 1 \
+              ! -name '.env*' ! -name '.dev.vars*' ! -name '.npmrc' ! -name '.yarnrc*' ! -name '.netrc' ! -name '.git-credentials' ! -name '.pypirc' ! -name '.aws' ! -name '.ssh' ! -name '.docker' ! -name '*.pem' ! -name 'id_rsa*' \
+              -exec cp -r {} dist/ \;
             FINAL_DIR="dist"
           elif [ -f "index.html" ]; then
             echo "Auto-staging static root files into 'dist/'..."
             mkdir -p dist
-            find . -maxdepth 1 ! -name '.' ! -name 'dist' ! -name '.git' ! -name '.github' ! -name '.vercel' ! -name 'node_modules' ! -name '.lighthouseci' -exec cp -r {} dist/ \;
+            # Depth-1 credential exclusion; upload-artifact's denylist is the recursive boundary.
+            find . -maxdepth 1 ! -name '.' ! -name 'dist' ! -name '.git' ! -name '.github' ! -name '.vercel' ! -name 'node_modules' ! -name '.lighthouseci' \
+              ! -name '.env*' ! -name '.dev.vars*' ! -name '.npmrc' ! -name '.yarnrc*' ! -name '.netrc' ! -name '.git-credentials' ! -name '.pypirc' ! -name '.aws' ! -name '.ssh' ! -name '.docker' ! -name '*.pem' ! -name 'id_rsa*' \
+              -exec cp -r {} dist/ \;
             FINAL_DIR="dist"
           else
             FINAL_DIR="dist"
@@ -295,13 +306,20 @@ runs:
           DISP_PROJECT="${PROJECT_NAME:-${REPO_NAME#*/}}"
           DISP_BRANCH="${BRANCH_NAME:-main}"
 
+          escape_html() {
+            printf '%s' "$1" | sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g; s/"/\&quot;/g'
+          }
+          DISP_PROJECT_HTML=$(escape_html "$DISP_PROJECT")
+          DISP_BRANCH_HTML=$(escape_html "$DISP_BRANCH")
+          REPO_NAME_HTML=$(escape_html "$REPO_NAME")
+
           cat << HTML_EOF > "${FINAL_DIR}/index.html"
           <!DOCTYPE html>
           <html lang="en">
           <head>
           <meta charset="UTF-8">
           <meta name="viewport" content="width=device-width, initial-scale=1.0">
-          <title>${DISP_PROJECT} — Deployment Active</title>
+          <title>${DISP_PROJECT_HTML} — Deployment Active</title>
           <meta name="description" content="This project is successfully connected to the LABEIM automated CI/CD pipeline and Cloudflare Workers. Deployment is active and ready for development.">
           <meta name="robots" content="index, follow">
           <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🚀</text></svg>">
@@ -473,16 +491,16 @@ runs:
           <span class="badge-dot"></span>
           <span>Cloudflare Workers &middot; Deployment Active</span>
           </div>
-          <h1>${DISP_PROJECT}</h1>
+          <h1>${DISP_PROJECT_HTML}</h1>
           <p class="subtitle">This repository is live and successfully connected to the LABEIM automated deployment pipeline. Once your frontend code is pushed, this placeholder will automatically update.</p>
                     <div class="info-grid">
           <div class="info-item">
           <div class="info-label">Repository</div>
-          <div class="info-value">${REPO_NAME}</div>
+          <div class="info-value">${REPO_NAME_HTML}</div>
           </div>
           <div class="info-item">
           <div class="info-label">Branch</div>
-          <div class="info-value">${DISP_BRANCH}</div>
+          <div class="info-value">${DISP_BRANCH_HTML}</div>
           </div>
           <div class="info-item">
           <div class="info-label">Target Platform</div>
@@ -537,8 +555,9 @@ runs:
       id: hash
       shell: bash
       working-directory: ${{ inputs.working_directory }}
+      env:
+        TARGET_DIR: ${{ steps.stage_dist.outputs.dist_dir }}
       run: |
-        TARGET_DIR="${{ steps.stage_dist.outputs.dist_dir }}"
         if [ -d "$TARGET_DIR" ]; then
           if [ "$TARGET_DIR" = "." ] || [ "$TARGET_DIR" = "./" ]; then
             HASH=$(find . -type f ! -path '*/.git/*' ! -path '*/.github/*' ! -path '*/node_modules/*' ! -path '*/.vercel/*' ! -path '*/.lighthouseci/*' -exec sha256sum {} \; | sort | sha256sum | cut -d' ' -f1)
@@ -581,27 +600,29 @@ runs:
         BRANCH_NAME: ${{ github.ref_name }}
         COMMIT_SHA: ${{ github.sha }}
         IS_BOOTSTRAP: ${{ steps.stage_dist.outputs.is_bootstrap }}
+        TARGET_DIR: ${{ steps.stage_dist.outputs.dist_dir }}
+        HASH: ${{ steps.hash.outputs.sha256 }}
+        PKG_MGR: ${{ steps.detect.outputs.package_manager }}
+        BUILD_DURATION: ${{ steps.build.outputs.duration }}
       run: |
-        TARGET_DIR="${{ steps.stage_dist.outputs.dist_dir }}"
         DIR_SIZE="N/A"
         if [ -d "$TARGET_DIR" ]; then
           DIR_SIZE=$(du -sh "$TARGET_DIR" | cut -f1)
         fi
-        HASH="${{ steps.hash.outputs.sha256 }}"
 
         {
           echo "### Build Summary"
           echo ""
           echo "| Metric | Value |"
           echo "| :--- | :--- |"
-          echo "| Package Manager | \`${{ steps.detect.outputs.package_manager }}\` |"
+          echo "| Package Manager | \`${PKG_MGR}\` |"
           echo "| Output Directory | \`${TARGET_DIR}\` |"
           if [ "$IS_BOOTSTRAP" = "true" ]; then
             echo "| Deployment Type | **Bootstrap Fallback (Initial Commit)** |"
           else
             echo "| Deployment Type | Application Static Build |"
           fi
-          echo "| Build Duration | ${{ steps.build.outputs.duration }} |"
+          echo "| Build Duration | ${BUILD_DURATION} |"
           echo "| Artifact SHA256 | \`${HASH:0:16}...\` |"
           echo "| Artifact Size | ${DIR_SIZE} |"
           echo "| Branch | \`${BRANCH_NAME}\` |"

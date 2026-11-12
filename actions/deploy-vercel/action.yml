@@ -35,6 +35,10 @@ inputs:
     description: 'Initial retry backoff in seconds'
     required: false
     default: '10'
+  production_branch:
+    description: 'Branch that deploys to production; other branches deploy previews'
+    required: false
+    default: 'main'
 
 outputs:
   deploy_url:
@@ -50,8 +54,12 @@ runs:
     - name: Validate Vercel deployment credentials
       shell: bash
       working-directory: ${{ inputs.working_directory }}
+      env:
+        VERCEL_TOKEN: ${{ inputs.vercel_token }}
+        PROJECT_ID: ${{ inputs.project_id }}
+        ORG_ID: ${{ inputs.org_id }}
       run: |
-        if [ -z "${{ inputs.vercel_token }}" ] || [ -z "${{ inputs.project_id }}" ] || [ -z "${{ inputs.org_id }}" ]; then
+        if [ -z "$VERCEL_TOKEN" ] || [ -z "$PROJECT_ID" ] || [ -z "$ORG_ID" ]; then
           echo "::error::vercel_token, project_id, and org_id are required to deploy to Vercel."
           exit 1
         fi
@@ -62,28 +70,43 @@ runs:
       env:
         VERCEL_ORG_ID: ${{ inputs.org_id }}
         VERCEL_PROJECT_ID: ${{ inputs.project_id }}
+        VERCEL_TOKEN: ${{ inputs.vercel_token }}
+        RAW_HEAD_REF: ${{ github.head_ref }}
+        RAW_REF_NAME: ${{ github.ref_name }}
+        PROD_BRANCH: ${{ inputs.production_branch }}
       run: |
+        BRANCH_NAME="${RAW_HEAD_REF:-$RAW_REF_NAME}"
         ENV_ARG="preview"
-        if [ "${{ github.event_name }}" != "pull_request" ]; then
+        if [ "${GITHUB_EVENT_NAME:-}" != "pull_request" ] && [ "${GITHUB_EVENT_NAME:-}" != "pull_request_target" ] \
+          && [ "${GITHUB_REF_TYPE:-}" = "branch" ] && [ "$BRANCH_NAME" = "$PROD_BRANCH" ]; then
           ENV_ARG="production"
         fi
-        npx --yes vercel@latest pull --yes --environment="$ENV_ARG" --token="${{ inputs.vercel_token }}"
+        # Pinned; bump deliberately — this runs in the job holding VERCEL_TOKEN.
+        npx --yes vercel@65.14.0 pull --yes --environment="$ENV_ARG" --token="$VERCEL_TOKEN"
 
     - name: Build Vercel Output API structure
       if: inputs.remote_build != 'true' && inputs.prepare_output == 'true'
       shell: bash
       working-directory: ${{ inputs.working_directory }}
+      env:
+        DIST_DIR: ${{ inputs.dist_dir }}
       run: |
-        DIST="${{ inputs.dist_dir }}"
+        DIST="$DIST_DIR"
         # Astro 7 SSR builds keep the site under client/; serve those prerendered assets.
         if [ -f "$DIST/server/wrangler.json" ] && [ -d "$DIST/client" ]; then
           DIST="$DIST/client"
         fi
         mkdir -p .vercel/output/static
         if [ "$DIST" = "." ] || [ "$DIST" = "./" ]; then
-          find . -maxdepth 1 ! -name '.' ! -name '.git' ! -name '.github' ! -name '.vercel' ! -name 'node_modules' ! -name '.lighthouseci' -exec cp -r {} .vercel/output/static/ \;
+          # Depth-1 credential exclusion; upload-artifact's denylist is the recursive boundary.
+          find . -maxdepth 1 ! -name '.' ! -name '.git' ! -name '.github' ! -name '.vercel' ! -name 'node_modules' ! -name '.lighthouseci' \
+            ! -name '.env*' ! -name '.dev.vars*' ! -name '.npmrc' ! -name '.yarnrc*' ! -name '.netrc' ! -name '.git-credentials' ! -name '.pypirc' ! -name '.aws' ! -name '.ssh' ! -name '.docker' ! -name '*.pem' ! -name 'id_rsa*' \
+            -exec cp -r {} .vercel/output/static/ \;
         elif [ -d "$DIST" ] && [ "$(ls -A "$DIST" 2>/dev/null)" ]; then
-          cp -r "${DIST}"/. .vercel/output/static/
+          # -H so a symlinked dist_dir is copied, not silently skipped.
+          find -H "$DIST" -mindepth 1 -maxdepth 1 \
+            ! -name '.git' ! -name '.env*' ! -name '.dev.vars*' ! -name '.npmrc' ! -name '.yarnrc*' ! -name '.netrc' ! -name '.git-credentials' ! -name '.pypirc' ! -name '.aws' ! -name '.ssh' ! -name '.docker' ! -name '*.pem' ! -name 'id_rsa*' \
+            -exec cp -r {} .vercel/output/static/ \;
         fi
         if [ ! -f .vercel/output/static/index.html ]; then
           echo "Scaffolding Vercel static fallback index.html..."
@@ -113,13 +136,19 @@ runs:
       env:
         VERCEL_ORG_ID: ${{ inputs.org_id }}
         VERCEL_PROJECT_ID: ${{ inputs.project_id }}
+        VERCEL_TOKEN: ${{ inputs.vercel_token }}
         MAX_RETRIES: ${{ inputs.max_retries }}
         INITIAL_RETRY_DELAY: ${{ inputs.retry_delay }}
         REMOTE_BUILD: ${{ inputs.remote_build }}
+        RAW_HEAD_REF: ${{ github.head_ref }}
+        RAW_REF_NAME: ${{ github.ref_name }}
+        PROD_BRANCH: ${{ inputs.production_branch }}
       run: |
+        BRANCH_NAME="${RAW_HEAD_REF:-$RAW_REF_NAME}"
         PROD_FLAG=""
         IS_PROD="false"
-        if [ "${{ github.event_name }}" != "pull_request" ]; then
+        if [ "${GITHUB_EVENT_NAME:-}" != "pull_request" ] && [ "${GITHUB_EVENT_NAME:-}" != "pull_request_target" ] \
+          && [ "${GITHUB_REF_TYPE:-}" = "branch" ] && [ "$BRANCH_NAME" = "$PROD_BRANCH" ]; then
           PROD_FLAG="--prod"
           IS_PROD="true"
         fi
@@ -137,7 +166,7 @@ runs:
         DEPLOY_EXIT=1
         for ATTEMPT in $(seq 1 $MAX_RETRIES); do
           echo "::group::Vercel deployment attempt $ATTEMPT/$MAX_RETRIES"
-          npx --yes vercel@latest deploy $BUILD_FLAG $PROD_FLAG --yes --token="${{ inputs.vercel_token }}" 2>&1 | tee vercel_deploy.log
+          npx --yes vercel@65.14.0 deploy $BUILD_FLAG $PROD_FLAG --yes --token="$VERCEL_TOKEN" 2>&1 | tee vercel_deploy.log
           DEPLOY_EXIT=${PIPESTATUS[0]}
           echo "::endgroup::"
           if [ "$DEPLOY_EXIT" -eq 0 ]; then
@@ -210,6 +239,7 @@ runs:
       env:
         TARGET_BRANCH: ${{ github.head_ref || github.ref_name }}
         REMOTE_BUILD: ${{ inputs.remote_build }}
+        DEPLOY_URL_SUMMARY: ${{ steps.resolve_url.outputs.deploy_url }}
       run: |
         BUILD_TYPE="Prebuilt (GitHub Actions)"
         if [ "$REMOTE_BUILD" = "true" ]; then
@@ -220,7 +250,7 @@ runs:
           echo ""
           echo "| Detail | Value |"
           echo "| :--- | :--- |"
-          echo "| URL | ${{ steps.resolve_url.outputs.deploy_url }} |"
+          echo "| URL | ${DEPLOY_URL_SUMMARY} |"
           echo "| Branch | \`${TARGET_BRANCH}\` |"
           echo "| Build Location | ${BUILD_TYPE} |"
           echo "| Mode | ${{ steps.deploy.outputs.is_production == 'true' && 'Production' || 'Preview' }} |"
