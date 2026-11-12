@@ -240,7 +240,7 @@ jobs:
     steps:
       # A fork that only edits its caller's `uses:` still runs upstream's actions
       # with its own tokens. `job.workflow_repository` would detect that exactly,
-      # but actionlint rejects it, so this notice is unconditional.
+      # but actionlint rejects it, so this notice is limited to non-LABEIM owners.
       - name: Note pipeline provenance
         if: github.repository_owner != 'LABEIM'
         shell: bash

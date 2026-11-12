@@ -151,10 +151,10 @@ Before tagging and publishing any release, verify:
 
 ### Version pins
 
-`wrangler` and `vercel` are pinned inside composite-action shell scripts, so neither Dependabot nor the action review will ever bump them. Before tagging:
+`wrangler` and `vercel` are pinned in each action's step `env:` (`WRANGLER_VERSION`, `VERCEL_VERSION`), so neither Dependabot nor the action review will ever bump them. Before tagging:
 
 ```bash
-grep -rn 'wrangler@\|vercel@' actions/*/action.yml
+grep -rn 'WRANGLER_VERSION:\|VERCEL_VERSION:' actions/*/action.yml
 npm view wrangler version && npm view vercel version
 ```
 

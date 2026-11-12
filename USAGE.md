@@ -113,7 +113,7 @@ Replace `LABEIM/shared-ci-cd` with your fork or organization path if different.
 
 ### 3. Push
 
-Push to `main` for a production deployment, or open a pull request for a preview deployment and an automatic PR comment.
+Push to `main` for a production deployment, or open a pull request for a preview deployment and an automatic PR comment (unless `enable_previews: false`).
 
 ---
 
@@ -133,16 +133,17 @@ flowchart LR
 | Stage | Runs when | Timeout | What it does |
 | :--- | :--- | :---: | :--- |
 | `validate-and-build` | `build_location` is `github`, `auto`, or empty | 15 min | Detects the runtime/package manager, installs, runs the optional check, builds, stages output, uploads `dist-static-build`. |
-| `deploy-cloudflare` | `enable_cloudflare` is `true` | 10 min | Deploys via Wrangler or triggers a Deploy Hook, then resolves the live/preview URL. |
-| `deploy-vercel` | `enable_vercel` is `true` | 10 min | Deploys prebuilt output via the Build Output API v3, or delegates the build to Vercel. |
-| `comment-pr` | `enable_pr_comment` is `true` and the event is `pull_request` | 5 min | Creates or updates the single preview comment. |
-| `lighthouse` | `enable_lighthouse` is `true` | 10 min | Audits the deployed URL (Cloudflare first, then Vercel, then static fallback) and reports scores. |
+| `deploy-cloudflare` | `enable_cloudflare` is `true` and (`enable_previews` is `true` or the run is `production_branch`) | 10 min | Deploys via Wrangler or triggers a Deploy Hook, then resolves the live/preview URL. |
+| `deploy-vercel` | `enable_vercel` is `true` and (`enable_previews` is `true` or the run is `production_branch`) | 10 min | Deploys prebuilt output via the Build Output API v3, or delegates the build to Vercel. |
+| `comment-pr` | `enable_pr_comment` is `true`, the event is `pull_request`, and a deploy ran | 5 min | Creates or updates the single preview comment. |
+| `lighthouse` | `enable_lighthouse` is `true` and a deploy ran (or both providers are disabled) | 10 min | Audits the deployed URL: Cloudflare first, then Vercel, then the static fallback; `ssr` accepts only the Cloudflare URL. |
 
 Production vs. preview (both providers):
 
-- A non-`pull_request` run deploys to production only when its branch equals `production_branch` (default `main`). Every other branch deploys a preview.
+- A non-`pull_request` run deploys to production only when its branch equals `production_branch` (default `main`). Every other branch deploys a preview when `enable_previews` is `true`.
 - `pull_request` events are always previews, even from a branch named `main`.
-- Tag and release events are previews too: their ref is the tag, not the production branch.
+- Tag and release events are previews too when previews are enabled: their ref is the tag, not the production branch.
+- With `enable_previews: false`, previews are skipped entirely: only a run of `production_branch` deploys, and no PR comment is posted.
 - The GitHub Environment follows the same rule: `*-production` only for the production branch, `*-preview` otherwise.
 
 The build artifact `dist-static-build` is kept for 3 days. It includes hidden files such as `.well-known/security.txt`; `.env*`, `.dev.vars*`, `.npmrc`, `.yarnrc*`, `.netrc`, `.git-credentials`, `.pypirc`, `.aws`, `.ssh`, `.docker`, `*.pem`, `id_rsa*`, and `.git` are excluded. Staged and copied publish roots apply the same exclusions. `dist_dir` must resolve inside the workspace, not its root.
@@ -391,7 +392,7 @@ Use these directly when you need custom Docker builds, extra gates, or non-stand
 | [`actions/pr-preview-comment`](actions/pr-preview-comment/action.yml) | Create or update the single preview comment | `cloudflare_url`, `vercel_url`, `custom_message`, `github_token` | — |
 | [`actions/lighthouse-audit`](actions/lighthouse-audit/action.yml) | Run Lighthouse CI and summarize scores; static audits resolve `dist_dir` under `working_directory` | `target_url`, `require_live_url`, `routes`, `config_path`, `dist_dir`, `append_to_pr`, `github_token` | `summary_markdown` |
 
-`wrangler` and `vercel` run through `npx` inside the jobs that hold `CLOUDFLARE_API_TOKEN` / `VERCEL_TOKEN`. Their versions are pinned in each action's `env:` and installed with `--ignore-scripts`.
+`wrangler` and `vercel` run through `npx` inside the jobs that hold `CLOUDFLARE_API_TOKEN` / `VERCEL_TOKEN`. Their versions are pinned in each action's `env:` and installed with `--ignore-scripts`. `deployment_mode` reports the resolved `static` or `ssr` shape.
 
 The reusable [`deploy-app.yml`](.github/workflows/deploy-app.yml) workflow is composed of these same actions, referenced at `@v2`; workflow and actions move together in a release.
 
@@ -620,10 +621,10 @@ Lighthouse audits the Cloudflare URL first, then Vercel, then the static build. 
 An `ssr` deployment must resolve a `workers.dev` URL before the audit runs; an unresolved URL fails instead of auditing the static fallback. For a Workers Builds deploy-hook build, provide `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN`, or set `enable_lighthouse: false`.
 
 **A deployment ran but the wrong branch is production.**
-Production requires a non-`pull_request` run whose branch equals `production_branch` (default `main`). A push to any other branch, a tag, or a release deploys a preview. Set `production_branch` if your production branch is not `main`.
+Production requires a non-`pull_request` run whose branch equals `production_branch` (default `main`). A push to any other branch, a tag, or a release deploys a preview when `enable_previews` is `true`; with `enable_previews: false` those runs deploy nothing. Set `production_branch` if your production branch is not `main`.
 
 **The job is green but `deploy_url` is empty.**
-The Worker URL could not be resolved from the deployment output or the account's `workers.dev` subdomain. Check that the subdomain is registered and that the token can read Workers Scripts. On a direct upload, a constructed fallback URL is published only after it answers with a 2xx/3xx; if it does not, `deploy_url` stays empty instead of linking a dead URL. A custom-domain Preview URL is never published. A Deploy Hook build resolves its URL from the subdomain without probing, because the remote build has not finished yet. Lighthouse falls back to the static build for non-SSR projects; for `ssr` it fails when no live URL resolves.
+The Worker URL could not be resolved from the deployment output or the account's `workers.dev` subdomain. Check that the subdomain is registered and that the token can read Workers Scripts. On a direct upload, a constructed fallback URL is published only after it answers with a 2xx/3xx; if it does not, `deploy_url` stays empty instead of linking a dead URL. A custom-domain Preview URL is never published. A Deploy Hook build resolves its URL from the subdomain without probing, because the remote build has not finished yet. Lighthouse falls back to the static build for non-SSR projects; for `ssr` it fails when no live URL resolves. With `enable_previews: false`, the deployment summary reports skipped and `deploy_url` is empty by design.
 
 **The deploy step fails with `dist_dir must resolve inside the workspace` or `max_retries must be a positive integer`.**
 `dist_dir` must point inside the checked-out repository (not `..`, an absolute path, or the repo root), and `max_retries` must be a positive integer.

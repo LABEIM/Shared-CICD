@@ -489,7 +489,7 @@ runs:
           # Preview --json writes only the machine output to stdout; keep it out of
           # the log so it stays parseable.
           do_deploy() {
-            # Pinned; bump deliberately — see RELEASING.md.
+            # Pinned in WRANGLER_VERSION above; bump deliberately — see RELEASING.md.
             if [ "$IS_PROD" = "true" ]; then
               npx --yes --ignore-scripts "wrangler@$WRANGLER_VERSION" "${DEPLOY_ARGS[@]}" 2>&1 | tee cf_deploy.log
             else
@@ -593,6 +593,7 @@ runs:
         STATUS="Deployed"
         URL="${DEPLOY_URL:-—}"
         if [ "$ENABLE_PREVIEWS" != "true" ] && [ "$IS_PROD" != "true" ]; then
+          MODE="Skipped"
           STATUS="Skipped (previews disabled)"
         elif [ -z "$DEPLOY_URL" ]; then
           STATUS="Deployed (URL unresolved)"
