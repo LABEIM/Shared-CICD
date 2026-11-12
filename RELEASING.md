@@ -92,6 +92,11 @@ Record these in the release notes, because consumers pinned to `@v2` inherit the
 - The build job runs with `contents: read` and `persist-credentials: false`. A `build_command` that pushes to the repository, or calls `gh`, now fails.
 - A `PUBLIC_*` name defined as both a secret and a non-empty variable with a different value now fails the build instead of silently preferring the variable.
 
+### v2.3.1 behavior changes
+
+- A Cloudflare preview's `deploy_url` is now the first `*.workers.dev` URL Wrangler reports, instead of whatever the log scrape found. A preview whose only reported URL is a custom domain now falls back to a verified workers.dev alias, and a constructed alias is published only after it answers.
+- A failed preview deploy prints Wrangler's own error. Preview runs output machine JSON, so the message is flushed from the captured file rather than streamed live.
+
 ---
 
 ### Scenario C: Releasing a Breaking Change (`v2.0.0`)

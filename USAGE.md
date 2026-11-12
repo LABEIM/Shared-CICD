@@ -396,12 +396,12 @@ The reusable [`deploy-app.yml`](.github/workflows/deploy-app.yml) workflow is co
 
 `cloudflare_mode` selects the deployment shape. `auto` (default) deploys a Worker + assets when `<dist_dir>/server/wrangler.json` exists (emitted by `@astrojs/cloudflare` 14+), otherwise static assets. `ssr` forces the Worker shape and fails if that config is missing; `static` forces assets only. In `ssr` mode `not_found_handling` has no effect (still validated), because unmatched paths must reach the Worker. See [Astro + Keystatic](#astro--keystatic-worker--assets).
 
-A production direct upload serves the Worker at `<sanitized-worker>.<subdomain>.workers.dev`; a preview is created per branch and is normally reachable at `<sanitized-branch>-<sanitized-worker>.<subdomain>.workers.dev`. `deploy_url` is whatever Cloudflare reports for the preview (`preview.urls[0]`, falling back to the unique deployment URL), and only a `*.workers.dev` URL is published to PR comments and summaries, so a custom-domain Preview URL leaves `deploy_url` empty rather than linking elsewhere.
+A production direct upload serves the Worker at `<sanitized-worker>.<subdomain>.workers.dev`; a preview is created per branch and is normally reachable at `<sanitized-branch>-<sanitized-worker>.<subdomain>.workers.dev`. For direct uploads, `deploy_url` is the first `*.workers.dev` URL Cloudflare reports for the preview (`preview.urls`, then `deployment.urls`), so a custom-domain Preview URL never reaches a PR comment; a workers.dev alias the CLI does not report is constructed from the account subdomain and published only after it answers. A Workers Builds deploy hook has no such output, so its URL is resolved from the subdomain without probing.
 
 Each branch reuses one named Preview. Cloudflare deletes the least-recently-deployed Preview when the per-Worker cap is reached (100 on Free, 500 on paid), so previews do not accumulate without bound. To clean up when a pull request closes, run:
 
 ```bash
-npx wrangler preview delete --name "<sanitized-branch>" --worker-name "<sanitized-worker>"
+npx wrangler preview delete --skip-confirmation --name "<sanitized-branch>" --worker-name "<sanitized-worker>"
 ```
 
 `preview delete` is an open-beta command; it needs `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` in the environment.
@@ -617,7 +617,7 @@ Lighthouse audits the Cloudflare URL first, then Vercel, then the static build. 
 Production requires a non-`pull_request` run whose branch equals `production_branch` (default `main`). A push to any other branch, a tag, or a release deploys a preview. Set `production_branch` if your production branch is not `main`.
 
 **The job is green but `deploy_url` is empty.**
-The Worker URL could not be resolved from the deployment output or the account's `workers.dev` subdomain. Check that the subdomain is registered and that the token can read Workers Scripts. A constructed fallback URL is only published after it answers with a 2xx/3xx; if it does not, `deploy_url` stays empty instead of linking a dead URL. A custom-domain Preview URL is never published. Lighthouse falls back to the static build in that case.
+The Worker URL could not be resolved from the deployment output or the account's `workers.dev` subdomain. Check that the subdomain is registered and that the token can read Workers Scripts. On a direct upload, a constructed fallback URL is published only after it answers with a 2xx/3xx; if it does not, `deploy_url` stays empty instead of linking a dead URL. A custom-domain Preview URL is never published. A Deploy Hook build resolves its URL from the subdomain without probing, because the remote build has not finished yet. Lighthouse falls back to the static build in that case.
 
 **The deploy step fails with `dist_dir must resolve inside the workspace` or `max_retries must be a positive integer`.**
 `dist_dir` must point inside the checked-out repository (not `..`, an absolute path, or the repo root), and `max_retries` must be a positive integer.

@@ -288,9 +288,8 @@ jobs:
     outputs:
       deploy_url: ${{ steps.resolve_url.outputs.deploy_url }}
     steps:
-      # A fork that only edits its caller's `uses:` still runs upstream's actions
-      # with its own tokens. `job.workflow_repository` would detect that exactly,
-      # but actionlint rejects it, so this notice is unconditional.
+      # Same reason as the Cloudflare job's provenance notice: a fork must edit
+      # these five refs itself, and the precise check fails actionlint.
       - name: Note pipeline provenance
         shell: bash
         run: echo "::notice::This pipeline runs composite actions from LABEIM/shared-ci-cd@v2; a fork must re-point all five LABEIM/shared-ci-cd/actions/*@v2 refs in its own copy of deploy-app.yml."
