@@ -99,15 +99,6 @@ runs:
           IS_PROD="true"
         fi
 
-        if [ "$ENABLE_PREVIEWS" != "true" ] && [ "$IS_PROD" != "true" ]; then
-          echo "::notice::Preview deployments are disabled (enable_previews=false); skipping."
-          printf 'deploy_url=\n' >> "$GITHUB_OUTPUT"
-          printf 'is_production=false\n' >> "$GITHUB_OUTPUT"
-          printf 'deployment_mode=\n' >> "$GITHUB_OUTPUT"
-          printf 'used_placeholder=false\n' >> "$GITHUB_OUTPUT"
-          exit 0
-        fi
-
         RESOLVED_PROJECT="${PROJECT_NAME:-${REPO_NAME#*/}}"
         CLEAN_PROJECT=$(echo "$RESOLVED_PROJECT" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g; s/^-//; s/-$//')
 
@@ -145,6 +136,16 @@ runs:
             exit 1
             ;;
         esac
+
+        # Config is validated above; skip before any credential or network use.
+        if [ "$ENABLE_PREVIEWS" != "true" ] && [ "$IS_PROD" != "true" ]; then
+          echo "::notice::Preview deployments are disabled (enable_previews=false); skipping."
+          printf 'deploy_url=\n' >> "$GITHUB_OUTPUT"
+          printf 'is_production=false\n' >> "$GITHUB_OUTPUT"
+          printf 'deployment_mode=\n' >> "$GITHUB_OUTPUT"
+          printf 'used_placeholder=false\n' >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
 
         printf 'deployment_mode=%s\n' "$RESOLVED_MODE" >> "$GITHUB_OUTPUT"
 
@@ -497,9 +498,9 @@ runs:
           do_deploy() {
             # Pinned in WRANGLER_VERSION above; bump deliberately — see RELEASING.md.
             if [ "$IS_PROD" = "true" ]; then
-              npx --yes --ignore-scripts "wrangler@$WRANGLER_VERSION" "${DEPLOY_ARGS[@]}" 2>&1 | tee cf_deploy.log
+              npx --yes --ignore-scripts "wrangler@${WRANGLER_VERSION:?WRANGLER_VERSION must be set}" "${DEPLOY_ARGS[@]}" 2>&1 | tee cf_deploy.log
             else
-              npx --yes --ignore-scripts "wrangler@$WRANGLER_VERSION" "${DEPLOY_ARGS[@]}" > cf_preview.json 2> cf_deploy.log
+              npx --yes --ignore-scripts "wrangler@${WRANGLER_VERSION:?WRANGLER_VERSION must be set}" "${DEPLOY_ARGS[@]}" > cf_preview.json 2> cf_deploy.log
             fi
           }
           RETRY_DELAY=$INITIAL_RETRY_DELAY

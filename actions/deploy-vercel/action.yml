@@ -86,7 +86,7 @@ runs:
           ENV_ARG="production"
         fi
         # Pinned in VERCEL_VERSION above; this runs in the job holding VERCEL_TOKEN.
-        npx --yes --ignore-scripts "vercel@$VERCEL_VERSION" pull --yes --environment="$ENV_ARG" --token="$VERCEL_TOKEN"
+        npx --yes --ignore-scripts "vercel@${VERCEL_VERSION:?VERCEL_VERSION must be set}" pull --yes --environment="$ENV_ARG" --token="$VERCEL_TOKEN"
 
     - name: Build Vercel Output API structure
       id: prepare_output
@@ -173,7 +173,7 @@ runs:
         DEPLOY_EXIT=1
         for ATTEMPT in $(seq 1 $MAX_RETRIES); do
           echo "::group::Vercel deployment attempt $ATTEMPT/$MAX_RETRIES"
-          npx --yes --ignore-scripts "vercel@$VERCEL_VERSION" deploy $BUILD_FLAG $PROD_FLAG --yes --token="$VERCEL_TOKEN" 2>&1 | tee vercel_deploy.log
+          npx --yes --ignore-scripts "vercel@${VERCEL_VERSION:?VERCEL_VERSION must be set}" deploy $BUILD_FLAG $PROD_FLAG --yes --token="$VERCEL_TOKEN" 2>&1 | tee vercel_deploy.log
           DEPLOY_EXIT=${PIPESTATUS[0]}
           echo "::endgroup::"
           if [ "$DEPLOY_EXIT" -eq 0 ]; then
