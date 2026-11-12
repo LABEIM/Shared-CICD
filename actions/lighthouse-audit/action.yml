@@ -10,6 +10,10 @@ inputs:
     description: 'Base URL to audit (leave empty for static dist fallback)'
     required: false
     default: ''
+  require_live_url:
+    description: 'Fail instead of auditing the static fallback when no live URL resolves'
+    required: false
+    default: 'false'
   routes:
     description: 'Newline-separated or space-separated list of relative routes to audit (e.g. "/\n/about\n/contact")'
     required: false
@@ -45,10 +49,16 @@ runs:
       working-directory: ${{ inputs.working_directory }}
       env:
         PASSED_URL: ${{ inputs.target_url }}
+        REQUIRE_LIVE_URL: ${{ inputs.require_live_url }}
       run: |
         TARGET=""
         if [ -n "$PASSED_URL" ]; then
           TARGET=$(echo "$PASSED_URL" | tr -cd 'a-zA-Z0-9.:/_-')
+        fi
+
+        if [ -z "$TARGET" ] && [ "$REQUIRE_LIVE_URL" = "true" ]; then
+          echo "::error::No live deployment URL was resolved; ssr deployments must be audited on the Worker, not the static fallback."
+          exit 1
         fi
 
         echo "Resolved Lighthouse Target: '${TARGET:-(Static dist fallback)}'"
@@ -101,24 +111,8 @@ runs:
           DIST="$DIST/client"
         fi
         if [ ! -d "$DIST" ] || [ ! -f "$DIST/index.html" ]; then
-          mkdir -p "$DIST"
-          cat << 'HTML_EOF' > "${DIST}/index.html"
-          <!DOCTYPE html>
-          <html lang="en">
-          <head>
-          <meta charset="UTF-8">
-          <meta name="viewport" content="width=device-width, initial-scale=1.0">
-          <title>Deployment Active</title>
-          <meta name="description" content="Connected to LABEIM CI/CD pipeline. Deployment is active and ready for development.">
-          </head>
-          <body>
-          <main>
-          <h1>Deployment Active</h1>
-          <p>Application is ready.</p>
-          </main>
-          </body>
-          </html>
-        HTML_EOF
+          echo "::error::No live URL and no static build at '$DIST' (missing index.html). Refusing to audit a placeholder."
+          exit 1
         fi
 
         STATIC_DIST="$DIST"
@@ -143,13 +137,14 @@ runs:
       working-directory: ${{ inputs.working_directory }}
       env:
         TARGET_URL: ${{ steps.resolve_target.outputs.target_url }}
+        STATIC_TARGET: ${{ steps.ensure_static.outputs.static_dist_dir }}
         LIVE_LINKS: ${{ steps.lighthouse_live.outputs.links }}
         STATIC_LINKS: ${{ steps.lighthouse_static.outputs.links }}
       run: |
         # shellcheck disable=SC2016
         node -e '
           const fs = require("fs");
-          const targetUrl = process.env.TARGET_URL || "Static build";
+          const targetUrl = process.env.TARGET_URL || (process.env.STATIC_TARGET ? `Static build (${process.env.STATIC_TARGET})` : "Static build");
           const liveLinksStr = process.env.LIVE_LINKS || "";
           const staticLinksStr = process.env.STATIC_LINKS || "";
           const summaryFile = process.env.GITHUB_STEP_SUMMARY;

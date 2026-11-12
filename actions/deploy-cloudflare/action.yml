@@ -54,6 +54,9 @@ outputs:
   is_production:
     description: 'Whether this was a production or preview deployment'
     value: ${{ steps.deploy.outputs.is_production }}
+  deployment_mode:
+    description: 'Resolved deployment shape: "static" or "ssr"'
+    value: ${{ steps.deploy.outputs.deployment_mode }}
 
 runs:
   using: 'composite'
@@ -123,6 +126,8 @@ runs:
             exit 1
             ;;
         esac
+
+        printf 'deployment_mode=%s\n' "$RESOLVED_MODE" >> "$GITHUB_OUTPUT"
 
         echo "Target Cloudflare Worker: $CLEAN_PROJECT"
         echo "Target Branch: $BRANCH_NAME"
@@ -527,10 +532,15 @@ runs:
           # prove the constructed URL exists before anything links to it.
           if [ -z "$DEPLOY_URL" ] && SUBDOMAIN=$(resolve_subdomain) && [ -n "$SUBDOMAIN" ]; then
             CANDIDATE="https://$(workers_host "$CLEAN_PROJECT" "$CLEAN_BRANCH").${SUBDOMAIN}.workers.dev"
-            for URL_ATTEMPT in 1 2 3; do
-              CODE=$(curl -sS -o /dev/null -L --max-time 10 --proto '=https' -w '%{http_code}' "$CANDIDATE" 2>/dev/null) || CODE=000
+            # Fresh Previews can take a minute to answer; 5s doubling waits 75s total.
+            DELAY=5
+            for URL_ATTEMPT in 1 2 3 4 5; do
+              CODE=$(curl -sS -o /dev/null -L --max-time 5 --proto '=https' -w '%{http_code}' "$CANDIDATE" 2>/dev/null) || CODE=000
               case "$CODE" in 2*|3*) DEPLOY_URL="$CANDIDATE"; break ;; esac
-              if [ "$URL_ATTEMPT" -lt 3 ]; then sleep 2; fi
+              if [ "$URL_ATTEMPT" -lt 5 ]; then
+                sleep "$DELAY"
+                DELAY=$((DELAY * 2))
+              fi
             done
             if [ -z "$DEPLOY_URL" ]; then
               echo "::warning::Constructed URL '$CANDIDATE' did not respond; leaving deploy_url unset rather than linking a dead URL."

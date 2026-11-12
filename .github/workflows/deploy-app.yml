@@ -227,6 +227,7 @@ jobs:
       url: ${{ steps.deploy_cf.outputs.deploy_url }}
     outputs:
       deploy_url: ${{ steps.deploy_cf.outputs.deploy_url }}
+      deployment_mode: ${{ steps.deploy_cf.outputs.deployment_mode }}
     steps:
       # A fork that only edits its caller's `uses:` still runs upstream's actions
       # with its own tokens. `job.workflow_repository` would detect that exactly,
@@ -376,7 +377,9 @@ jobs:
         uses: LABEIM/shared-ci-cd/actions/lighthouse-audit@v2
         with:
           working_directory: ${{ inputs.working_directory }}
-          target_url: ${{ needs.deploy-cloudflare.outputs.deploy_url || needs.deploy-vercel.outputs.deploy_url }}
+          # SSR must be audited on the Worker; a Vercel backup or static client build cannot replace it.
+          target_url: ${{ ((inputs.cloudflare_mode == 'ssr' || needs.deploy-cloudflare.outputs.deployment_mode == 'ssr') && needs.deploy-cloudflare.outputs.deploy_url) || ((inputs.cloudflare_mode != 'ssr' && needs.deploy-cloudflare.outputs.deployment_mode != 'ssr') && (needs.deploy-cloudflare.outputs.deploy_url || needs.deploy-vercel.outputs.deploy_url)) || '' }}
+          require_live_url: ${{ inputs.cloudflare_mode == 'ssr' || needs.deploy-cloudflare.outputs.deployment_mode == 'ssr' }}
           routes: ${{ inputs.lighthouse_routes }}
           config_path: ${{ inputs.lighthouse_config_path }}
           dist_dir: ${{ (inputs.build_location == 'github' || inputs.build_location == '' || inputs.build_location == 'auto') && '_dist_assets' || inputs.dist_dir }}
