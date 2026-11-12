@@ -96,9 +96,13 @@ runs:
         fi
         mkdir -p .vercel/output/static
         if [ "$DIST" = "." ] || [ "$DIST" = "./" ]; then
-          find . -maxdepth 1 ! -name '.' ! -name '.git' ! -name '.github' ! -name '.vercel' ! -name 'node_modules' ! -name '.lighthouseci' -exec cp -r {} .vercel/output/static/ \;
+          find . -maxdepth 1 ! -name '.' ! -name '.git' ! -name '.github' ! -name '.vercel' ! -name 'node_modules' ! -name '.lighthouseci' \
+            ! -name '.env*' ! -name '.dev.vars*' ! -name '.npmrc' ! -name '.yarnrc*' ! -name '.netrc' ! -name '.git-credentials' ! -name '.pypirc' ! -name '.aws' ! -name '.ssh' ! -name '.docker' ! -name '*.pem' ! -name 'id_rsa*' \
+            -exec cp -r {} .vercel/output/static/ \;
         elif [ -d "$DIST" ] && [ "$(ls -A "$DIST" 2>/dev/null)" ]; then
-          cp -r "${DIST}"/. .vercel/output/static/
+          find "$DIST" -mindepth 1 -maxdepth 1 \
+            ! -name '.env*' ! -name '.dev.vars*' ! -name '.npmrc' ! -name '.yarnrc*' ! -name '.netrc' ! -name '.git-credentials' ! -name '.pypirc' ! -name '.aws' ! -name '.ssh' ! -name '.docker' ! -name '*.pem' ! -name 'id_rsa*' \
+            -exec cp -r {} .vercel/output/static/ \;
         fi
         if [ ! -f .vercel/output/static/index.html ]; then
           echo "Scaffolding Vercel static fallback index.html..."

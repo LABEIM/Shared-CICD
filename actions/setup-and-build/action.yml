@@ -269,7 +269,10 @@ runs:
           elif [ -f "index.html" ]; then
             echo "Auto-staging static root files into 'dist/'..."
             mkdir -p dist
-            find . -maxdepth 1 ! -name '.' ! -name 'dist' ! -name '.git' ! -name '.github' ! -name '.vercel' ! -name 'node_modules' ! -name '.lighthouseci' -exec cp -r {} dist/ \;
+            # Copy a static root but never ship credential files.
+            find . -maxdepth 1 ! -name '.' ! -name 'dist' ! -name '.git' ! -name '.github' ! -name '.vercel' ! -name 'node_modules' ! -name '.lighthouseci' \
+              ! -name '.env*' ! -name '.dev.vars*' ! -name '.npmrc' ! -name '.yarnrc*' ! -name '.netrc' ! -name '.git-credentials' ! -name '.pypirc' ! -name '.aws' ! -name '.ssh' ! -name '.docker' ! -name '*.pem' ! -name 'id_rsa*' \
+              -exec cp -r {} dist/ \;
             FINAL_DIR="dist"
           else
             FINAL_DIR="dist"
