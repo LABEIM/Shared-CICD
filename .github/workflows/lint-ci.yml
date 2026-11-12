@@ -29,26 +29,7 @@ jobs:
       - name: Validate YAML syntax
         shell: bash
         run: |
-          node -e "
-            const fs = require('fs');
-            const path = require('path');
-
-            function findFiles(dir, filter, fileList = []) {
-              const files = fs.readdirSync(dir);
-              for (const file of files) {
-                const filePath = path.join(dir, file);
-                const stat = fs.statSync(filePath);
-                if (stat.isDirectory() && file !== '.git') {
-                  findFiles(filePath, filter, fileList);
-                } else if (filter.test(file)) {
-                  fileList.push(filePath);
-                }
-              }
-              return fileList;
-            }
-
-            const yamlFiles = findFiles('.', /\.(yml|yaml)$/);
-            console.log('Found ' + yamlFiles.length + ' YAML files:');
-            yamlFiles.forEach(f => console.log(' - ' + f));
-            console.log('\nAll workflows and actions are verified.');
-          "
+          mapfile -t files < <(git ls-files '*.yml' '*.yaml')
+          (( ${#files[@]} )) || { echo "::error::no YAML files found"; exit 1; }
+          ruby -rpsych -e 'ARGV.each { |f| Psych.parse_file(f) }' "${files[@]}"
+          echo "Parsed ${#files[@]} YAML files."

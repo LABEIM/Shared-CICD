@@ -119,7 +119,7 @@ Before ending a session, the agent must perform these tasks:
 1. **Verification Commands**:
    - Lint workflows: `actionlint`
    - Validate composite action metadata as YAML (covered by the `lint-ci.yml` syntax check)
-   - Validate YAML syntax: run the Node.js validation step from `.github/workflows/lint-ci.yml`
+   - Validate YAML syntax: run the Ruby/Psych validation step from `.github/workflows/lint-ci.yml`
    - Build: not applicable — this repository ships YAML definitions and has no compilation step
 2. **Test Isolation**: Validate workflow changes on a branch or fork before merging. Use `workflow_dispatch` and example caller workflows to exercise changes without affecting consumers.
 3. **Consumer Impact**: Because consumers pin a floating major tag (e.g. `@v2`), non-breaking changes must preserve the existing input/secret contract.
