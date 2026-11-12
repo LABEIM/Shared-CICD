@@ -89,10 +89,17 @@ runs:
 
     - name: Ensure static build fallback exists for Lighthouse
       if: steps.resolve_target.outputs.target_url == ''
+      id: ensure_static
       shell: bash
       working-directory: ${{ inputs.working_directory }}
+      env:
+        DIST_DIR: ${{ inputs.dist_dir }}
+        WORK_DIR: ${{ inputs.working_directory }}
       run: |
-        DIST="${{ inputs.dist_dir }}"
+        DIST="$DIST_DIR"
+        if [ -f "$DIST/server/wrangler.json" ] && [ -d "$DIST/client" ]; then
+          DIST="$DIST/client"
+        fi
         if [ ! -d "$DIST" ] || [ ! -f "$DIST/index.html" ]; then
           mkdir -p "$DIST"
           cat << 'HTML_EOF' > "${DIST}/index.html"
@@ -114,13 +121,19 @@ runs:
         HTML_EOF
         fi
 
+        STATIC_DIST="$DIST"
+        if [ "$WORK_DIR" != "." ]; then
+          STATIC_DIST="$WORK_DIR/$DIST"
+        fi
+        echo "static_dist_dir=$STATIC_DIST" >> "$GITHUB_OUTPUT"
+
     - name: Run Lighthouse audit (Static Fallback)
       if: steps.resolve_target.outputs.target_url == ''
       id: lighthouse_static
       uses: treosh/lighthouse-ci-action@v12
       with:
         configPath: ${{ inputs.config_path }}
-        staticDistDir: ${{ inputs.working_directory == '.' && inputs.dist_dir || format('{0}/{1}', inputs.working_directory, inputs.dist_dir) }}
+        staticDistDir: ${{ steps.ensure_static.outputs.static_dist_dir }}
         uploadArtifacts: true
 
     - name: Parse and format Lighthouse results

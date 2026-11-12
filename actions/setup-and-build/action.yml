@@ -258,7 +258,7 @@ runs:
           elif [ -d "public" ] && [ "$(ls -A public 2>/dev/null)" ]; then
             echo "Auto-staging static files from 'public/' into 'dist/'..."
             mkdir -p dist
-            cp -r public/* dist/ 2>/dev/null || cp -r public/. dist/
+            cp -r public/. dist/
             FINAL_DIR="dist"
           elif [ -f "index.html" ]; then
             echo "Auto-staging static root files into 'dist/'..."
@@ -269,6 +269,18 @@ runs:
             FINAL_DIR="dist"
           fi
         fi
+
+        # Uploading outside the workspace would publish source, .git and tooling state.
+        WORKSPACE_ROOT="${GITHUB_WORKSPACE:-$PWD}"
+        REAL_FINAL=$(realpath -m "$FINAL_DIR")
+        REAL_ROOT=$(realpath -m "$WORKSPACE_ROOT")
+        case "$REAL_FINAL" in
+          "$REAL_ROOT"/?*) ;;
+          *)
+            echo "::error::dist_dir must resolve inside the workspace ($REAL_ROOT) and not be its root; got $FINAL_DIR."
+            exit 1
+            ;;
+        esac
 
         # Bootstrap Fallback: If output directory does not exist, is empty, or lacks index.html
         IS_BOOTSTRAP="false"
@@ -544,7 +556,22 @@ runs:
       uses: actions/upload-artifact@v6
       with:
         name: ${{ inputs.artifact_name }}
-        path: ${{ inputs.working_directory == '.' && format('{0}/', steps.stage_dist.outputs.dist_dir) || format('{0}/{1}/', inputs.working_directory, steps.stage_dist.outputs.dist_dir) }}
+        path: |
+          ${{ inputs.working_directory == '.' && format('{0}/', steps.stage_dist.outputs.dist_dir) || format('{0}/{1}/', inputs.working_directory, steps.stage_dist.outputs.dist_dir) }}
+          !**/.env*
+          !**/.dev.vars*
+          !**/.git/**
+          !**/.npmrc
+          !**/.yarnrc*
+          !**/.netrc
+          !**/.git-credentials
+          !**/.pypirc
+          !**/.aws/**
+          !**/.ssh/**
+          !**/.docker/**
+          !**/*.pem
+          !**/id_rsa*
+        include-hidden-files: true
         retention-days: ${{ inputs.artifact_retention_days }}
 
     - name: Build summary

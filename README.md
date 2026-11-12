@@ -19,7 +19,7 @@ This repository provides shared CI/CD building blocks consumed by LABEIM project
 - **Composable actions** under `actions/` for runtime setup and builds, Cloudflare Workers and Vercel deployments, pull-request preview comments, and Lighthouse CI audits.
 - **Reusable workflows** under `.github/workflows/` for the full deployment pipeline, CodeQL analysis, dependency review, stale issue/PR cleanup, Dependabot auto-merge, and release tag management.
 - **Ready-to-copy examples** under `examples/` covering zero-dependency static sites, framework applications, monorepos, multi-cloud deployments, and remote platform builds.
-- **Build-time configuration** — inherited secrets named `PUBLIC_*` are exported into the build environment (e.g. Astro/Vite `import.meta.env.PUBLIC_*`), so consumer config reaches the static build without `with:` inputs.
+- **Build-time configuration** — inherited secrets or repository/organization variables named `PUBLIC_*` are exported into the build environment (variables win over same-named secrets), so consumer config reaches the static build without `with:` inputs.
 - **Keystatic CMS on Workers** — an Astro 7 site can deploy its Keystatic Cloud admin at `/keystatic` as a Worker with static assets (`cloudflare_mode: 'ssr'`).
 - **Status:** Active
 - **Maintained by:** Enterprise Infrastructure Management (EIM) Research Laboratory, Telkom University
