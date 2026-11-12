@@ -306,13 +306,19 @@ runs:
           DISP_PROJECT="${PROJECT_NAME:-${REPO_NAME#*/}}"
           DISP_BRANCH="${BRANCH_NAME:-main}"
 
+          escape_html() {
+            printf '%s' "$1" | sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g; s/"/\&quot;/g'
+          }
+          DISP_PROJECT_HTML=$(escape_html "$DISP_PROJECT")
+          DISP_BRANCH_HTML=$(escape_html "$DISP_BRANCH")
+
           cat << HTML_EOF > "${FINAL_DIR}/index.html"
           <!DOCTYPE html>
           <html lang="en">
           <head>
           <meta charset="UTF-8">
           <meta name="viewport" content="width=device-width, initial-scale=1.0">
-          <title>${DISP_PROJECT} — Deployment Active</title>
+          <title>${DISP_PROJECT_HTML} — Deployment Active</title>
           <meta name="description" content="This project is successfully connected to the LABEIM automated CI/CD pipeline and Cloudflare Workers. Deployment is active and ready for development.">
           <meta name="robots" content="index, follow">
           <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🚀</text></svg>">
@@ -484,7 +490,7 @@ runs:
           <span class="badge-dot"></span>
           <span>Cloudflare Workers &middot; Deployment Active</span>
           </div>
-          <h1>${DISP_PROJECT}</h1>
+          <h1>${DISP_PROJECT_HTML}</h1>
           <p class="subtitle">This repository is live and successfully connected to the LABEIM automated deployment pipeline. Once your frontend code is pushed, this placeholder will automatically update.</p>
                     <div class="info-grid">
           <div class="info-item">
@@ -493,7 +499,7 @@ runs:
           </div>
           <div class="info-item">
           <div class="info-label">Branch</div>
-          <div class="info-value">${DISP_BRANCH}</div>
+          <div class="info-value">${DISP_BRANCH_HTML}</div>
           </div>
           <div class="info-item">
           <div class="info-label">Target Platform</div>

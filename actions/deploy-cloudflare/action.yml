@@ -204,6 +204,11 @@ runs:
             echo "No deployable HTML found in '$DIST_DIR'. Bootstrapping fallback placeholder..."
             mkdir -p "$DIST_DIR"
 
+            escape_html() {
+              printf '%s' "$1" | sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g; s/"/\&quot;/g'
+            }
+            BRANCH_NAME_HTML=$(escape_html "$BRANCH_NAME")
+
             cat << HTML_EOF > "${DIST_DIR}/index.html"
             <!DOCTYPE html>
             <html lang="en">
