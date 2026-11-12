@@ -250,7 +250,7 @@ jobs:
 
       # Wrangler 4.160 requires Node >= 22.12; the deploy job does not build.
       - name: Setup Node for Wrangler
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@v7
         with:
           node-version: '22'
 
