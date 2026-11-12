@@ -459,7 +459,7 @@ jobs:
 | [`codeql-scan.yml`](.github/workflows/codeql-scan.yml) | Configurable | CodeQL static analysis for JavaScript/TypeScript, Python, and Go. |
 | [`dependency-review.yml`](.github/workflows/dependency-review.yml) | Pull requests | Blocks high-severity vulnerable dependency changes. |
 | [`stale-cleanup.yml`](.github/workflows/stale-cleanup.yml) | Schedule or `workflow_call` | Closes stale issues and pull requests. |
-| [`dependabot-auto-merge.yml`](.github/workflows/dependabot-auto-merge.yml) | Dependabot PRs | Auto-merges safe dependency updates. |
+| [`dependabot-auto-merge.yml`](.github/workflows/dependabot-auto-merge.yml) | Dependabot PRs | Auto-merges patch updates; minor and major updates wait for review. |
 | [`release-tagger.yml`](.github/workflows/release-tagger.yml) | Release published | Moves the floating major tag to the new release. |
 
 ---

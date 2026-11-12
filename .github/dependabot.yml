@@ -1,4 +1,6 @@
 version: 2
+# Patch updates are grouped to cut PR noise. Minor and major updates are left
+# ungrouped so each gets its own PR and a human read.
 updates:
   # Workflows only. Composite actions are separate entries below: the root entry
   # scans .github/workflows and a root action.yml, not action directories.
@@ -15,9 +17,11 @@ updates:
       - "ci"
       - "automated"
     groups:
-      github-actions:
+      github-actions-patch:
         patterns:
           - "*"
+        update-types:
+          - "patch"
 
   # Composite actions are not covered by the root entry, so each action directory
   # that contains `uses:` refs is listed explicitly.
@@ -34,9 +38,11 @@ updates:
       - "ci"
       - "automated"
     groups:
-      github-actions:
+      github-actions-patch:
         patterns:
           - "*"
+        update-types:
+          - "patch"
 
   - package-ecosystem: "github-actions"
     directory: "/actions/lighthouse-audit"
@@ -51,9 +57,11 @@ updates:
       - "ci"
       - "automated"
     groups:
-      github-actions:
+      github-actions-patch:
         patterns:
           - "*"
+        update-types:
+          - "patch"
 
   - package-ecosystem: "github-actions"
     directory: "/actions/pr-preview-comment"
@@ -68,6 +76,8 @@ updates:
       - "ci"
       - "automated"
     groups:
-      github-actions:
+      github-actions-patch:
         patterns:
           - "*"
+        update-types:
+          - "patch"
