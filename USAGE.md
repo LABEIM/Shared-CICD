@@ -132,7 +132,7 @@ Production vs. preview:
 - **Cloudflare** — production when the branch matches `production_branch` (default `main`); `main` and `master` are always treated as production. `pull_request` events are always previews, even from a branch named `main`.
 - **Vercel** — production for every non-`pull_request` event; preview for pull requests.
 
-The build artifact `dist-static-build` is kept for 3 days. It includes hidden files such as `.well-known/security.txt`; `.env` / `.env.*`, `.dev.vars*`, `.npmrc`, `.yarnrc*`, and `.git` are excluded. `dist_dir` must point at a build output directory, not the working-directory root (the repository root when `working_directory: '.'`).
+The build artifact `dist-static-build` is kept for 3 days. It includes hidden files such as `.well-known/security.txt`; `.env*`, `.dev.vars*`, `.npmrc`, `.yarnrc*`, `.netrc`, `.ssh`, `.aws`, `.docker`, `*.pem`, and `.git` are excluded. `dist_dir` must resolve inside the workspace, not its root.
 
 ---
 
@@ -314,13 +314,6 @@ Identifiers (`VERCEL_PROJECT_ID`, `VERCEL_ORG_ID`) are repository **variables**,
 
 Deployment credentials may live in the `cloudflare-production` / `cloudflare-preview` and `vercel-production` / `vercel-preview` environments. Environment secrets require a public repository on GitHub Free; private repositories on Free must use repository secrets.
 
-To pass the account ID as a variable:
-
-```yaml
-with:
-  cloudflare_account_id: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
-```
-
 ### Build-time environment variables
 
 When the site is built on the runner (`build_location: github`, the default), every inherited secret or repository/organization variable whose name starts with `PUBLIC_` is exported into the build environment before the build command runs. The prefix is case-sensitive: nothing else is exported, and the step logs the exported names only, never the values. When both a variable and a secret share a name, the variable wins; an empty variable does not override a non-empty secret.
@@ -333,7 +326,7 @@ jobs:
     uses: LABEIM/shared-ci-cd/.github/workflows/deploy-app.yml@v2
     with:
       cloudflare_project_name: 'my-astro-site'
-    # PUBLIC_GOOGLE_SHEET_SCRIPT_URL, PUBLIC_RECRUITMENT_SECRET, ... are inherited here
+    # PUBLIC_GOOGLE_SHEET_SCRIPT_URL, PUBLIC_RECRUITMENT_SECRET, ... are inherited or read as variables here
     secrets: inherit
 ```
 

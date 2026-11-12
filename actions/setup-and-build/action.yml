@@ -270,11 +270,17 @@ runs:
           fi
         fi
 
-        # Uploading the workspace root would publish source, .git and tooling state.
-        if [ "$(realpath -m "$FINAL_DIR")" = "$(realpath -m .)" ]; then
-          echo "::error::dist_dir must not resolve to the working directory root ($FINAL_DIR). Point it at the build output directory."
-          exit 1
-        fi
+        # Uploading outside the workspace would publish source, .git and tooling state.
+        WORKSPACE_ROOT="${GITHUB_WORKSPACE:-$PWD}"
+        REAL_FINAL=$(realpath -m "$FINAL_DIR")
+        REAL_ROOT=$(realpath -m "$WORKSPACE_ROOT")
+        case "$REAL_FINAL" in
+          "$REAL_ROOT"/?*) ;;
+          *)
+            echo "::error::dist_dir must resolve inside the workspace ($REAL_ROOT) and not be its root; got $FINAL_DIR."
+            exit 1
+            ;;
+        esac
 
         # Bootstrap Fallback: If output directory does not exist, is empty, or lacks index.html
         IS_BOOTSTRAP="false"
@@ -552,12 +558,19 @@ runs:
         name: ${{ inputs.artifact_name }}
         path: |
           ${{ inputs.working_directory == '.' && format('{0}/', steps.stage_dist.outputs.dist_dir) || format('{0}/{1}/', inputs.working_directory, steps.stage_dist.outputs.dist_dir) }}
-          !**/.env
-          !**/.env.*
+          !**/.env*
           !**/.dev.vars*
           !**/.git/**
           !**/.npmrc
           !**/.yarnrc*
+          !**/.netrc
+          !**/.git-credentials
+          !**/.pypirc
+          !**/.aws/**
+          !**/.ssh/**
+          !**/.docker/**
+          !**/*.pem
+          !**/id_rsa*
         include-hidden-files: true
         retention-days: ${{ inputs.artifact_retention_days }}
 

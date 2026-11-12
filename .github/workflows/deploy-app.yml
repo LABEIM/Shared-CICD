@@ -146,9 +146,6 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v7
 
-      # The reusable workflow runs in consumer repositories, where `./actions/*` resolves
-      # against the consumer's checkout. Reference this repository's actions explicitly and
-      # keep `@v2` in sync with the floating release tag.
       - name: Export PUBLIC_* values for build
         shell: bash
         env:
@@ -174,6 +171,9 @@ jobs:
                 | to_entries[] | select(.key | startswith("PUBLIC_")) | .key
               '
 
+      # The reusable workflow runs in consumer repositories, where `./actions/*` resolves
+      # against the consumer's checkout. Reference this repository's actions explicitly and
+      # keep `@v2` in sync with the floating release tag.
       - name: Setup, build, and upload static app
         id: build
         uses: LABEIM/shared-ci-cd/actions/setup-and-build@v2
