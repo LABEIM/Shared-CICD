@@ -60,6 +60,9 @@ outputs:
   resolved_dist_dir:
     description: 'The resolved output directory containing build assets'
     value: ${{ steps.stage_dist.outputs.dist_dir }}
+  is_bootstrap:
+    description: 'Whether the build produced no index.html and a bootstrap placeholder was staged'
+    value: ${{ steps.stage_dist.outputs.is_bootstrap }}
 
 runs:
   using: 'composite'

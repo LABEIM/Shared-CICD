@@ -146,6 +146,7 @@ jobs:
       artifact_hash: ${{ steps.build.outputs.artifact_hash }}
       build_duration: ${{ steps.build.outputs.build_duration }}
       detected_dist_dir: ${{ steps.build.outputs.resolved_dist_dir }}
+      is_bootstrap: ${{ steps.build.outputs.is_bootstrap }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
@@ -372,6 +373,13 @@ jobs:
         with:
           name: dist-static-build
           path: ${{ inputs.working_directory }}/_dist_assets/
+
+      - name: Refuse to audit a bootstrap placeholder
+        if: needs.validate-and-build.outputs.is_bootstrap == 'true'
+        shell: bash
+        run: |
+          echo "::error::The build produced no index.html; Lighthouse will not audit the bootstrap placeholder. Fix dist_dir or build_command."
+          exit 1
 
       - name: Run Lighthouse audit and report
         uses: LABEIM/shared-ci-cd/actions/lighthouse-audit@v2
