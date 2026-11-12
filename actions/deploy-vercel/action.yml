@@ -81,7 +81,8 @@ runs:
           && [ "${GITHUB_REF_TYPE:-}" = "branch" ] && [ "$BRANCH_NAME" = "$PROD_BRANCH" ]; then
           ENV_ARG="production"
         fi
-        npx --yes vercel@latest pull --yes --environment="$ENV_ARG" --token="$VERCEL_TOKEN"
+        # Pinned; bump deliberately — this runs in the job holding VERCEL_TOKEN.
+        npx --yes vercel@65.14.0 pull --yes --environment="$ENV_ARG" --token="$VERCEL_TOKEN"
 
     - name: Build Vercel Output API structure
       if: inputs.remote_build != 'true' && inputs.prepare_output == 'true'
@@ -165,7 +166,7 @@ runs:
         DEPLOY_EXIT=1
         for ATTEMPT in $(seq 1 $MAX_RETRIES); do
           echo "::group::Vercel deployment attempt $ATTEMPT/$MAX_RETRIES"
-          npx --yes vercel@latest deploy $BUILD_FLAG $PROD_FLAG --yes --token="$VERCEL_TOKEN" 2>&1 | tee vercel_deploy.log
+          npx --yes vercel@65.14.0 deploy $BUILD_FLAG $PROD_FLAG --yes --token="$VERCEL_TOKEN" 2>&1 | tee vercel_deploy.log
           DEPLOY_EXIT=${PIPESTATUS[0]}
           echo "::endgroup::"
           if [ "$DEPLOY_EXIT" -eq 0 ]; then
