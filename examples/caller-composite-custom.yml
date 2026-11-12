@@ -38,6 +38,7 @@ jobs:
           project_name: 'custom-web-portal'
           dist_dir: 'dist'
           not_found_handling: 'auto' # 404-page if dist/404.html exists, otherwise SPA fallback
+          enable_previews: true # Set false to deploy production_branch only
           api_token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           account_id: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 

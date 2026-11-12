@@ -17,6 +17,13 @@ on:
         type: string
         default: 'github'
 
+      # Preview Deployments
+      enable_previews:
+        description: 'Deploy preview environments for non-production refs'
+        required: false
+        type: boolean
+        default: true
+
       # Runtime & Build Settings (Used when build_location is "github")
       node_version:
         description: 'Node.js version (or "auto" for .nvmrc / .node-version)'
@@ -146,6 +153,7 @@ jobs:
       artifact_hash: ${{ steps.build.outputs.artifact_hash }}
       build_duration: ${{ steps.build.outputs.build_duration }}
       detected_dist_dir: ${{ steps.build.outputs.resolved_dist_dir }}
+      is_bootstrap: ${{ steps.build.outputs.is_bootstrap }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
@@ -215,6 +223,7 @@ jobs:
     needs: [validate-and-build]
     if: >-
       inputs.enable_cloudflare == true &&
+      (inputs.enable_previews == true || (github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.ref_type == 'branch' && (github.head_ref || github.ref_name) == inputs.production_branch)) &&
       !cancelled() &&
       (needs.validate-and-build.result == 'success' || needs.validate-and-build.result == 'skipped')
     runs-on: ubuntu-latest
@@ -227,13 +236,16 @@ jobs:
       url: ${{ steps.deploy_cf.outputs.deploy_url }}
     outputs:
       deploy_url: ${{ steps.deploy_cf.outputs.deploy_url }}
+      deployment_mode: ${{ steps.deploy_cf.outputs.deployment_mode }}
+      used_placeholder: ${{ steps.deploy_cf.outputs.used_placeholder }}
     steps:
       # A fork that only edits its caller's `uses:` still runs upstream's actions
       # with its own tokens. `job.workflow_repository` would detect that exactly,
-      # but actionlint rejects it, so this notice is unconditional.
+      # but actionlint rejects it, so this notice is limited to non-LABEIM owners.
       - name: Note pipeline provenance
+        if: github.repository_owner != 'LABEIM'
         shell: bash
-        run: echo "::notice::This pipeline runs composite actions from LABEIM/shared-ci-cd@v2; a fork must re-point every LABEIM/shared-ci-cd/actions/*@v2 ref in its own copy of deploy-app.yml."
+        run: echo "::notice::This pipeline runs composite actions from LABEIM/shared-ci-cd@v2. A fork that keeps this workflow must copy deploy-app.yml into the fork, call it by local path, and re-point the LABEIM/shared-ci-cd/actions/* refs; otherwise its tokens run upstream code."
 
       - name: Checkout repository (if skipping GitHub build)
         if: inputs.build_location != 'github' && inputs.build_location != '' && inputs.build_location != 'auto'
@@ -263,6 +275,7 @@ jobs:
           dist_dir: ${{ (inputs.build_location == 'github' || inputs.build_location == '' || inputs.build_location == 'auto') && '_dist_assets' || inputs.dist_dir }}
           production_branch: ${{ inputs.production_branch }}
           cloudflare_mode: ${{ inputs.cloudflare_mode }}
+          enable_previews: ${{ inputs.enable_previews }}
           api_token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           account_id: ${{ inputs.cloudflare_account_id || secrets.CLOUDFLARE_ACCOUNT_ID }}
           deploy_hook_url: ${{ secrets.CLOUDFLARE_DEPLOY_HOOK_URL }}
@@ -275,6 +288,7 @@ jobs:
     needs: [validate-and-build]
     if: >-
       inputs.enable_vercel == true &&
+      (inputs.enable_previews == true || (github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.ref_type == 'branch' && (github.head_ref || github.ref_name) == inputs.production_branch)) &&
       !cancelled() &&
       (needs.validate-and-build.result == 'success' || needs.validate-and-build.result == 'skipped')
     runs-on: ubuntu-latest
@@ -287,12 +301,14 @@ jobs:
       url: ${{ steps.resolve_url.outputs.deploy_url }}
     outputs:
       deploy_url: ${{ steps.resolve_url.outputs.deploy_url }}
+      used_placeholder: ${{ steps.resolve_url.outputs.used_placeholder }}
     steps:
       # Same reason as the Cloudflare job's provenance notice: a fork must edit
       # these five refs itself, and the precise check fails actionlint.
       - name: Note pipeline provenance
+        if: github.repository_owner != 'LABEIM'
         shell: bash
-        run: echo "::notice::This pipeline runs composite actions from LABEIM/shared-ci-cd@v2; a fork must re-point every LABEIM/shared-ci-cd/actions/*@v2 ref in its own copy of deploy-app.yml."
+        run: echo "::notice::This pipeline runs composite actions from LABEIM/shared-ci-cd@v2. A fork that keeps this workflow must copy deploy-app.yml into the fork, call it by local path, and re-point the LABEIM/shared-ci-cd/actions/* refs; otherwise its tokens run upstream code."
 
       - name: Checkout repository (for remote build / standalone deploy)
         if: inputs.build_location == 'vercel' || inputs.build_location == 'none' || inputs.build_location == 'skip'
@@ -372,11 +388,23 @@ jobs:
           name: dist-static-build
           path: ${{ inputs.working_directory }}/_dist_assets/
 
+      - name: Refuse to audit a bootstrap placeholder
+        if: >-
+          needs.validate-and-build.outputs.is_bootstrap == 'true' ||
+          needs.deploy-cloudflare.outputs.used_placeholder == 'true' ||
+          needs.deploy-vercel.outputs.used_placeholder == 'true'
+        shell: bash
+        run: |
+          echo "::error::A bootstrap placeholder was built or deployed; Lighthouse will not audit it. Fix dist_dir or build_command."
+          exit 1
+
       - name: Run Lighthouse audit and report
         uses: LABEIM/shared-ci-cd/actions/lighthouse-audit@v2
         with:
           working_directory: ${{ inputs.working_directory }}
-          target_url: ${{ needs.deploy-cloudflare.outputs.deploy_url || needs.deploy-vercel.outputs.deploy_url }}
+          # SSR must be audited on the Worker; a Vercel backup or static client build cannot replace it.
+          target_url: ${{ needs.deploy-cloudflare.outputs.deploy_url || ((inputs.cloudflare_mode != 'ssr' && needs.deploy-cloudflare.outputs.deployment_mode != 'ssr') && needs.deploy-vercel.outputs.deploy_url) || '' }}
+          require_live_url: ${{ inputs.cloudflare_mode == 'ssr' || needs.deploy-cloudflare.outputs.deployment_mode == 'ssr' }}
           routes: ${{ inputs.lighthouse_routes }}
           config_path: ${{ inputs.lighthouse_config_path }}
           dist_dir: ${{ (inputs.build_location == 'github' || inputs.build_location == '' || inputs.build_location == 'auto') && '_dist_assets' || inputs.dist_dir }}

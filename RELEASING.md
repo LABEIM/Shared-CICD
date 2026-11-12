@@ -143,7 +143,7 @@ The workflow force-pushes only the floating major tag, never the semantic tag.
 Before tagging and publishing any release, verify:
 
 - [ ] All action definitions in `actions/*/action.yml` have valid YAML syntax.
-- [ ] New inputs/outputs are properly documented in `README.md`.
+- [ ] New inputs/outputs are properly documented in `USAGE.md`.
 - [ ] Example workflows in `examples/` are up to date.
 - [ ] CI validation checks on `main` are green.
 - [ ] Floating major tag for the release (`v2`) has been pushed.
@@ -151,10 +151,10 @@ Before tagging and publishing any release, verify:
 
 ### Version pins
 
-`wrangler` and `vercel` are pinned inside composite-action shell scripts, so neither Dependabot nor the action review will ever bump them. Before tagging:
+`wrangler` and `vercel` are pinned in each action's step `env:` (`WRANGLER_VERSION`, `VERCEL_VERSION`), so neither Dependabot nor the action review will ever bump them. Before tagging:
 
 ```bash
-grep -rn 'wrangler@\|vercel@' actions/*/action.yml
+grep -rn 'WRANGLER_VERSION:\|VERCEL_VERSION:' actions/*/action.yml
 npm view wrangler version && npm view vercel version
 ```
 

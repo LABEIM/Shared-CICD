@@ -47,6 +47,9 @@ outputs:
   is_production:
     description: 'Whether this was a production deployment'
     value: ${{ steps.deploy.outputs.is_production }}
+  used_placeholder:
+    description: 'Whether a bootstrap placeholder was staged because the output had no index.html'
+    value: ${{ steps.prepare_output.outputs.used_placeholder }}
 
 runs:
   using: 'composite'
@@ -71,6 +74,7 @@ runs:
         VERCEL_ORG_ID: ${{ inputs.org_id }}
         VERCEL_PROJECT_ID: ${{ inputs.project_id }}
         VERCEL_TOKEN: ${{ inputs.vercel_token }}
+        VERCEL_VERSION: '65.14.0'
         RAW_HEAD_REF: ${{ github.head_ref }}
         RAW_REF_NAME: ${{ github.ref_name }}
         PROD_BRANCH: ${{ inputs.production_branch }}
@@ -81,10 +85,11 @@ runs:
           && [ "${GITHUB_REF_TYPE:-}" = "branch" ] && [ "$BRANCH_NAME" = "$PROD_BRANCH" ]; then
           ENV_ARG="production"
         fi
-        # Pinned; bump deliberately — this runs in the job holding VERCEL_TOKEN.
-        npx --yes vercel@65.14.0 pull --yes --environment="$ENV_ARG" --token="$VERCEL_TOKEN"
+        # Pinned in VERCEL_VERSION above; this runs in the job holding VERCEL_TOKEN.
+        npx --yes --ignore-scripts "vercel@${VERCEL_VERSION:?VERCEL_VERSION must be set}" pull --yes --environment="$ENV_ARG" --token="$VERCEL_TOKEN"
 
     - name: Build Vercel Output API structure
+      id: prepare_output
       if: inputs.remote_build != 'true' && inputs.prepare_output == 'true'
       shell: bash
       working-directory: ${{ inputs.working_directory }}
@@ -109,6 +114,7 @@ runs:
             -exec cp -r {} .vercel/output/static/ \;
         fi
         if [ ! -f .vercel/output/static/index.html ]; then
+          echo "used_placeholder=true" >> "$GITHUB_OUTPUT"
           echo "Scaffolding Vercel static fallback index.html..."
           cat << 'HTML_EOF' > .vercel/output/static/index.html
           <!DOCTYPE html>
@@ -137,6 +143,7 @@ runs:
         VERCEL_ORG_ID: ${{ inputs.org_id }}
         VERCEL_PROJECT_ID: ${{ inputs.project_id }}
         VERCEL_TOKEN: ${{ inputs.vercel_token }}
+        VERCEL_VERSION: '65.14.0'
         MAX_RETRIES: ${{ inputs.max_retries }}
         INITIAL_RETRY_DELAY: ${{ inputs.retry_delay }}
         REMOTE_BUILD: ${{ inputs.remote_build }}
@@ -166,7 +173,7 @@ runs:
         DEPLOY_EXIT=1
         for ATTEMPT in $(seq 1 $MAX_RETRIES); do
           echo "::group::Vercel deployment attempt $ATTEMPT/$MAX_RETRIES"
-          npx --yes vercel@65.14.0 deploy $BUILD_FLAG $PROD_FLAG --yes --token="$VERCEL_TOKEN" 2>&1 | tee vercel_deploy.log
+          npx --yes --ignore-scripts "vercel@${VERCEL_VERSION:?VERCEL_VERSION must be set}" deploy $BUILD_FLAG $PROD_FLAG --yes --token="$VERCEL_TOKEN" 2>&1 | tee vercel_deploy.log
           DEPLOY_EXIT=${PIPESTATUS[0]}
           echo "::endgroup::"
           if [ "$DEPLOY_EXIT" -eq 0 ]; then

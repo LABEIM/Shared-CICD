@@ -36,6 +36,7 @@ jobs:
       cloudflare_project_name: 'my-web-project'
       cloudflare_account_id: ${{ vars.CLOUDFLARE_ACCOUNT_ID }} # optional; falls back to the secret
       enable_vercel: false # Vercel is disabled and consumes 0 runner seconds
+      enable_previews: true # Set false to deploy production_branch only
 
       # Audits & Feedback
       enable_pr_comment: true
