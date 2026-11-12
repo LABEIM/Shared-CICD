@@ -35,6 +35,10 @@ inputs:
     description: 'Initial retry backoff in seconds'
     required: false
     default: '10'
+  production_branch:
+    description: 'Branch that deploys to production; other branches deploy previews'
+    required: false
+    default: 'main'
 
 outputs:
   deploy_url:
@@ -62,12 +66,17 @@ runs:
       env:
         VERCEL_ORG_ID: ${{ inputs.org_id }}
         VERCEL_PROJECT_ID: ${{ inputs.project_id }}
+        VERCEL_TOKEN: ${{ inputs.vercel_token }}
+        RAW_HEAD_REF: ${{ github.head_ref }}
+        RAW_REF_NAME: ${{ github.ref_name }}
+        PROD_BRANCH: ${{ inputs.production_branch }}
       run: |
+        BRANCH_NAME="${RAW_HEAD_REF:-$RAW_REF_NAME}"
         ENV_ARG="preview"
-        if [ "${{ github.event_name }}" != "pull_request" ]; then
+        if [ "${GITHUB_EVENT_NAME:-}" != "pull_request" ] && [ "$BRANCH_NAME" = "$PROD_BRANCH" ]; then
           ENV_ARG="production"
         fi
-        npx --yes vercel@latest pull --yes --environment="$ENV_ARG" --token="${{ inputs.vercel_token }}"
+        npx --yes vercel@latest pull --yes --environment="$ENV_ARG" --token="$VERCEL_TOKEN"
 
     - name: Build Vercel Output API structure
       if: inputs.remote_build != 'true' && inputs.prepare_output == 'true'
@@ -113,13 +122,18 @@ runs:
       env:
         VERCEL_ORG_ID: ${{ inputs.org_id }}
         VERCEL_PROJECT_ID: ${{ inputs.project_id }}
+        VERCEL_TOKEN: ${{ inputs.vercel_token }}
         MAX_RETRIES: ${{ inputs.max_retries }}
         INITIAL_RETRY_DELAY: ${{ inputs.retry_delay }}
         REMOTE_BUILD: ${{ inputs.remote_build }}
+        RAW_HEAD_REF: ${{ github.head_ref }}
+        RAW_REF_NAME: ${{ github.ref_name }}
+        PROD_BRANCH: ${{ inputs.production_branch }}
       run: |
+        BRANCH_NAME="${RAW_HEAD_REF:-$RAW_REF_NAME}"
         PROD_FLAG=""
         IS_PROD="false"
-        if [ "${{ github.event_name }}" != "pull_request" ]; then
+        if [ "${GITHUB_EVENT_NAME:-}" != "pull_request" ] && [ "$BRANCH_NAME" = "$PROD_BRANCH" ]; then
           PROD_FLAG="--prod"
           IS_PROD="true"
         fi
@@ -137,7 +151,7 @@ runs:
         DEPLOY_EXIT=1
         for ATTEMPT in $(seq 1 $MAX_RETRIES); do
           echo "::group::Vercel deployment attempt $ATTEMPT/$MAX_RETRIES"
-          npx --yes vercel@latest deploy $BUILD_FLAG $PROD_FLAG --yes --token="${{ inputs.vercel_token }}" 2>&1 | tee vercel_deploy.log
+          npx --yes vercel@latest deploy $BUILD_FLAG $PROD_FLAG --yes --token="$VERCEL_TOKEN" 2>&1 | tee vercel_deploy.log
           DEPLOY_EXIT=${PIPESTATUS[0]}
           echo "::endgroup::"
           if [ "$DEPLOY_EXIT" -eq 0 ]; then

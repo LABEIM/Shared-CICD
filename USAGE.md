@@ -127,10 +127,12 @@ flowchart LR
 | `comment-pr` | `enable_pr_comment` is `true` and the event is `pull_request` | 5 min | Creates or updates the single preview comment. |
 | `lighthouse` | `enable_lighthouse` is `true` | 10 min | Audits the deployed URL (Cloudflare first, then Vercel, then static fallback) and reports scores. |
 
-Production vs. preview:
+Production vs. preview (both providers):
 
-- **Cloudflare** — production when the branch matches `production_branch` (default `main`); `main` and `master` are always treated as production. `pull_request` events are always previews, even from a branch named `main`.
-- **Vercel** — production for every non-`pull_request` event; preview for pull requests.
+- A non-`pull_request` run deploys to production only when its branch equals `production_branch` (default `main`). Every other branch deploys a preview.
+- `pull_request` events are always previews, even from a branch named `main`.
+- Tag and release events are previews too: their ref is the tag, not the production branch.
+- The GitHub Environment follows the same rule: `*-production` only for the production branch, `*-preview` otherwise.
 
 The build artifact `dist-static-build` is kept for 3 days. It includes hidden files such as `.well-known/security.txt`; `.env*`, `.dev.vars*`, `.npmrc`, `.yarnrc*`, `.netrc`, `.ssh`, `.aws`, `.docker`, `*.pem`, and `.git` are excluded. `dist_dir` must resolve inside the workspace, not its root.
 
@@ -282,7 +284,7 @@ All inputs are optional unless noted. All are declared under `with:`.
 | `dist_dir` | string | `'dist'` | Output directory, or `'auto'` to detect standard folders. |
 | `enable_cloudflare` | boolean | `true` | Deploy to Cloudflare Workers. |
 | `cloudflare_project_name` | string | `''` | Cloudflare Worker name (defaults to the repository name). |
-| `production_branch` | string | `'main'` | Branch treated as production. |
+| `production_branch` | string | `'main'` | Branch that deploys to production on both Cloudflare and Vercel; other branches deploy previews. |
 | `cloudflare_mode` | string | `'auto'` | `'auto'`, `'static'`, or `'ssr'`. `auto` deploys a Worker + assets when `<dist_dir>/server/wrangler.json` exists, otherwise static assets. |
 | `cloudflare_account_id` | string | `''` | Cloudflare account ID as a non-secret value; falls back to the `CLOUDFLARE_ACCOUNT_ID` secret. |
 | `enable_vercel` | boolean | `false` | Deploy to Vercel. |
@@ -361,7 +363,7 @@ The workflow publishes to GitHub Environments:
 - `cloudflare-preview` / `cloudflare-production`
 - `vercel-preview` / `vercel-production`
 
-You can attach protection rules (required reviewers, wait timers, deployment branch policies) in **Settings → Environments**.
+You can attach protection rules (required reviewers, wait timers, deployment branch policies) in **Settings → Environments**. The workflow picks the environment with the same rule it uses for production: a non-`pull_request` run of `production_branch` uses the `*-production` environment, everything else uses `*-preview`.
 
 ---
 
@@ -593,7 +595,7 @@ The comment job only runs on `pull_request` events with `enable_pr_comment: true
 Lighthouse audits the Cloudflare URL first, then Vercel, then the static build. Make sure every route in `lighthouse_routes` exists and is publicly reachable; a 404 page will score poorly.
 
 **A deployment ran but the wrong branch is production.**
-Cloudflare treats `main` and `master` as production regardless of `production_branch`, except on `pull_request` events, which are always previews. Rename the branch or adjust the workflow if that is not intended.
+Production requires a non-`pull_request` run whose branch equals `production_branch` (default `main`). A push to any other branch, a tag, or a release deploys a preview. Set `production_branch` if your production branch is not `main`.
 
 **The job is green but `deploy_url` is empty.**
 The Worker URL could not be resolved from the command output or the account's `workers.dev` subdomain. Check that the subdomain is registered, that the token can read Workers Scripts, and that the log contains a `*.workers.dev` URL. Lighthouse falls back to the static build in that case.

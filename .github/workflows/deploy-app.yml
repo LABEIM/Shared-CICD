@@ -207,7 +207,7 @@ jobs:
       contents: read
       deployments: write
     environment:
-      name: ${{ github.event_name == 'pull_request' && 'cloudflare-preview' || 'cloudflare-production' }}
+      name: ${{ github.event_name != 'pull_request' && (github.head_ref || github.ref_name) == inputs.production_branch && 'cloudflare-production' || 'cloudflare-preview' }}
       url: ${{ steps.deploy_cf.outputs.deploy_url }}
     outputs:
       deploy_url: ${{ steps.deploy_cf.outputs.deploy_url }}
@@ -260,7 +260,7 @@ jobs:
       contents: read
       deployments: write
     environment:
-      name: ${{ github.event_name == 'pull_request' && 'vercel-preview' || 'vercel-production' }}
+      name: ${{ github.event_name != 'pull_request' && (github.head_ref || github.ref_name) == inputs.production_branch && 'vercel-production' || 'vercel-preview' }}
       url: ${{ steps.resolve_url.outputs.deploy_url }}
     outputs:
       deploy_url: ${{ steps.resolve_url.outputs.deploy_url }}
@@ -289,6 +289,7 @@ jobs:
           dist_dir: ${{ (inputs.build_location == 'github' || inputs.build_location == '' || inputs.build_location == 'auto') && '_dist_assets' || inputs.dist_dir }}
           remote_build: ${{ inputs.build_location == 'vercel' }}
           prepare_output: ${{ inputs.build_location == 'github' || inputs.build_location == '' || inputs.build_location == 'auto' }}
+          production_branch: ${{ inputs.production_branch }}
 
   # ──────────────────────────────────────────────────────────────────────
   # Stage 3: Post PR Preview Comment (Optional)
