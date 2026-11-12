@@ -1,41 +1,7 @@
 version: 2
 updates:
-  - package-ecosystem: "npm"
-    directory: "/"
-    schedule:
-      interval: "weekly"
-      day: "monday"
-    open-pull-requests-limit: 10
-    commit-message:
-      prefix: "chore(deps):"
-    labels:
-      - "dependencies"
-      - "automated"
-    groups:
-      astro-ecosystem:
-        patterns:
-          - "astro"
-          - "@astrojs/*"
-        update-types:
-          - "minor"
-          - "patch"
-      react:
-        patterns:
-          - "react"
-          - "react-dom"
-          - "@types/react"
-          - "@types/react-dom"
-      keystatic:
-        patterns:
-          - "@keystatic/*"
-      tailwind:
-        patterns:
-          - "tailwindcss"
-          - "@tailwindcss/*"
-      fonts:
-        patterns:
-          - "@fontsource/*"
-
+  # Workflows only. Composite actions are separate entries below: the root entry
+  # scans .github/workflows and a root action.yml, not action directories.
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
@@ -52,3 +18,44 @@ updates:
       github-actions:
         patterns:
           - "*"
+
+  # A non-root directory is scanned for *.yml directly, so these are the only way
+  # Dependabot sees the `uses:` refs inside a composite action.
+  - package-ecosystem: "github-actions"
+    directory: "/actions/setup-and-build"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "ci(deps):"
+    labels:
+      - "dependencies"
+      - "ci"
+      - "automated"
+
+  - package-ecosystem: "github-actions"
+    directory: "/actions/lighthouse-audit"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "ci(deps):"
+    labels:
+      - "dependencies"
+      - "ci"
+      - "automated"
+
+  - package-ecosystem: "github-actions"
+    directory: "/actions/pr-preview-comment"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "ci(deps):"
+    labels:
+      - "dependencies"
+      - "ci"
+      - "automated"
