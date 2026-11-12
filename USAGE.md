@@ -620,7 +620,7 @@ The comment job only runs on `pull_request` events with `enable_pr_comment: true
 Lighthouse audits the Cloudflare URL first, then Vercel, then the static build. Make sure every route in `lighthouse_routes` exists and is publicly reachable; a 404 page will score poorly. In `ssr` mode only the Cloudflare URL is accepted, because a Vercel build or static `client/` directory does not exercise Worker routes.
 
 **Lighthouse fails with no live deployment URL.**
-An `ssr` deployment must resolve a `workers.dev` URL before the audit runs; an unresolved URL fails instead of auditing the static fallback. For a Workers Builds deploy-hook build, provide `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN`, or set `enable_lighthouse: false`.
+An `ssr` deployment must resolve a `workers.dev` URL before the audit runs; an unresolved URL fails instead of auditing the static fallback. The job stops before the audit with a `Lighthouse audit skipped (no live URL)` annotation and a step summary naming the deploy result, so the failure is not a Lighthouse score regression. For a Workers Builds deploy-hook build, provide `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN`, or set `enable_lighthouse: false`.
 
 **A deployment ran but the wrong branch is production.**
 Production requires a non-`pull_request` run whose branch equals `production_branch` (default `main`). A push to any other branch, a tag, or a release deploys a preview when `enable_previews` is `true`; with `enable_previews: false` those runs deploy nothing. Set `production_branch` if your production branch is not `main`.
