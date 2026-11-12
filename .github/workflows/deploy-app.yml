@@ -159,6 +159,19 @@ jobs:
           set -euo pipefail
           DELIM="__GH_ENV_$(openssl rand -hex 16)__"
 
+          # A name defined as both a secret and a non-empty variable with a different
+          # value would silently change the build config, so fail instead of guessing.
+          conflicts=$(printf '%s' "$ALL_SECRETS_JSON" \
+            | jq -r --argjson v "$ALL_VARS_JSON" '
+                [ to_entries[]
+                  | select(.key | startswith("PUBLIC_"))
+                  | select($v[.key] != null and $v[.key] != "" and $v[.key] != .value)
+                  | .key ] | .[]')
+          if [ -n "$conflicts" ]; then
+            echo "::error::PUBLIC_* defined as both a secret and a non-empty variable with different values: $(printf '%s' "$conflicts" | tr '\n' ' ')"
+            exit 1
+          fi
+
           # Only PUBLIC_* values are exported. Variables win over secrets; an empty variable does not.
           printf '%s' "$ALL_SECRETS_JSON" \
             | jq -r --argjson v "$ALL_VARS_JSON" --arg delim "$DELIM" '

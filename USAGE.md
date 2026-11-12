@@ -318,7 +318,7 @@ Deployment credentials may live in the `cloudflare-production` / `cloudflare-pre
 
 ### Build-time environment variables
 
-When the site is built on the runner (`build_location: github`, the default), every inherited secret or repository/organization variable whose name starts with `PUBLIC_` is exported into the build environment before the build command runs. The prefix is case-sensitive: nothing else is exported, and the step logs the exported names only, never the values. When both a variable and a secret share a name, the variable wins; an empty variable does not override a non-empty secret.
+When the site is built on the runner (`build_location: github`, the default), every inherited secret or repository/organization variable whose name starts with `PUBLIC_` is exported into the build environment before the build command runs. The prefix is case-sensitive: nothing else is exported, and the step logs the exported names only, never the values. When both a variable and a secret share a name, the variable wins when the variable is non-empty. If a non-empty variable and the secret hold different values, the build fails before it starts and names the conflicting keys, so a typo cannot silently change the build config; keep the two in sync or remove one. An empty variable does not override the secret.
 
 This is how callers pass build-time configuration to frameworks that inline environment variables into the static output. GitHub does not allow the `secrets` context inside `with:`, so secret values must arrive through `secrets: inherit`; `PUBLIC_*` variables are read from the caller's repository automatically:
 
