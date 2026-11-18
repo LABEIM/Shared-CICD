@@ -19,7 +19,7 @@ inputs:
     required: false
     default: 'auto'
   workers_dev:
-    description: 'Expose the Worker at <worker>.<subdomain>.workers.dev and enable version preview URLs. Set false to keep the Production URL off and publish only the custom domains attached to the Worker.'
+    description: 'For direct uploads, expose the Worker at <worker>.<subdomain>.workers.dev and enable version preview URLs. Set false to keep the Production URL off and publish only the custom domains attached to the Worker. Deploy-hook builds take their route from the committed Wrangler config.'
     required: false
     default: 'true'
   cloudflare_mode:
@@ -188,8 +188,10 @@ runs:
             return 0
           fi
           local host
-          host=$(curl -sSf -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
-            "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/domains?service=$1" \
+          host=$(curl -sSf --proto '=https' --connect-timeout 10 --max-time 30 --globoff --get \
+            --data-urlencode "service=$1" \
+            -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+            "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/domains" \
             | jq -r '[.result[]? | select(.enabled == true) | .hostname][0] // empty') || return 0
           [ -n "$host" ] && printf 'https://%s' "$host"
         }
@@ -203,6 +205,9 @@ runs:
             echo "Cloudflare Deploy Hook triggered successfully (HTTP $HTTP_CODE)."
             if [ "$RESOLVED_MODE" = "ssr" ]; then
               echo "::warning::cloudflare_mode=ssr does not change the deploy-hook shape (Workers Builds uses the committed Wrangler config), but it still requires a live URL for Lighthouse."
+            fi
+            if [ "$WORKERS_DEV" = "false" ]; then
+              echo "::warning::workers_dev only affects direct uploads; this deploy hook builds from the committed Wrangler config. deploy_url uses the custom domain or stays empty."
             fi
           else
             echo "::error::Failed to trigger Cloudflare Deploy Hook (HTTP $HTTP_CODE)."
@@ -606,8 +611,8 @@ runs:
             fi
           fi
 
-          # With workers.dev off, an attached custom domain is the only public URL.
-          # Previews reuse the production domain, so never publish it for them.
+          # An attached custom domain is the last public URL when workers.dev does not
+          # resolve. Previews reuse the production domain, so never publish it for them.
           if [ -z "$DEPLOY_URL" ] && [ "$IS_PROD" = "true" ]; then
             DEPLOY_URL=$(resolve_custom_domain "$CLEAN_PROJECT" || true)
           fi

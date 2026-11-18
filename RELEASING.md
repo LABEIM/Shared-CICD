@@ -99,8 +99,8 @@ Record these in the release notes, because consumers pinned to `@v2` inherit the
 
 ### v2.5.0 behavior changes
 
-- `cloudflare_workers_dev` (action input `workers_dev`) defaults to `true`, so existing consumers are unchanged. Setting it to `false` leaves `workers_dev` and `preview_urls` off in the generated config instead of re-enabling the Production URL.
-- When no `*.workers.dev` URL resolves, `deploy_url` now falls back to the Worker's first enabled custom domain instead of staying empty. A preview uses Cloudflare's custom-domain Preview URL and never borrows the parent Worker's production domain.
+- `cloudflare_workers_dev` (action input `workers_dev`) defaults to `true`, so existing consumers keep the workers.dev route. For direct uploads, setting it to `false` leaves `workers_dev` and `preview_urls` off in the generated config instead of re-enabling the Production URL. Deploy-hook builds ignore it because Workers Builds uses the committed Wrangler config.
+- When no `*.workers.dev` URL resolves, `deploy_url` now falls back to the Worker's first enabled custom domain instead of staying empty. A preview uses Cloudflare's custom-domain Preview URL and never borrows the parent Worker's production domain. Consumers that already resolved a workers.dev URL see no change.
 
 ---
 

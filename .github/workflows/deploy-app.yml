@@ -80,7 +80,7 @@ on:
         type: string
         default: 'auto'
       cloudflare_workers_dev:
-        description: 'Expose the Worker at <worker>.<subdomain>.workers.dev. Set false to keep the Production URL off; deploy_url falls back to the Worker''s custom domain'
+        description: 'For direct uploads, expose the Worker at <worker>.<subdomain>.workers.dev. Set false to keep the Production URL off; deploy_url falls back to the Worker''s custom domain. Deploy-hook builds use the committed Wrangler config'
         required: false
         type: boolean
         default: true
