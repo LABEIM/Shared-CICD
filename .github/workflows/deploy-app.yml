@@ -84,6 +84,11 @@ on:
         required: false
         type: boolean
         default: true
+      cloudflare_preview_urls:
+        description: 'Workers.dev Preview URLs for branch Previews: "auto" leaves the existing Cloudflare setting unchanged, "true" enables, "false" disables. Independent of cloudflare_workers_dev'
+        required: false
+        type: string
+        default: 'auto'
       cloudflare_account_id:
         description: 'Cloudflare Account ID (non-secret option; falls back to CLOUDFLARE_ACCOUNT_ID)'
         required: false
@@ -281,6 +286,7 @@ jobs:
           production_branch: ${{ inputs.production_branch }}
           cloudflare_mode: ${{ inputs.cloudflare_mode }}
           workers_dev: ${{ inputs.cloudflare_workers_dev }}
+          preview_urls: ${{ inputs.cloudflare_preview_urls }}
           enable_previews: ${{ inputs.enable_previews }}
           api_token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           account_id: ${{ inputs.cloudflare_account_id || secrets.CLOUDFLARE_ACCOUNT_ID }}
