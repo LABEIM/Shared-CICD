@@ -194,6 +194,18 @@ runs:
           if [ "$IS_PROD" = "true" ]; then printf '%s' "$1"; else printf '%s-%s' "$2" "$1"; fi
         }
 
+        # Whether this deploy's workers.dev route is expected to exist: production
+        # follows workers_dev, Previews follow preview_urls ("auto" trusts the API).
+        route_enabled() {
+          if [ "$IS_PROD" = "true" ]; then
+            if [ "$WORKERS_DEV" = "true" ]; then printf true; else printf false; fi
+          elif [ "$PREVIEW_URLS" != "false" ]; then
+            printf true
+          else
+            printf false
+          fi
+        }
+
         # First custom domain currently routing production traffic to the Worker.
         # Dashboard-managed domains never appear in deploy output, so ask the API.
         resolve_custom_domain() {
@@ -219,8 +231,10 @@ runs:
             if [ "$RESOLVED_MODE" = "ssr" ]; then
               echo "::warning::cloudflare_mode=ssr does not change the deploy-hook shape (Workers Builds uses the committed Wrangler config), but it still requires a live URL for Lighthouse."
             fi
-            if [ "$WORKERS_DEV" = "false" ]; then
+            if [ "$IS_PROD" = "true" ] && [ "$WORKERS_DEV" = "false" ]; then
               echo "::warning::workers_dev only affects direct uploads; this deploy hook builds from the committed Wrangler config. deploy_url uses the custom domain or stays empty."
+            elif [ "$IS_PROD" != "true" ] && [ "$PREVIEW_URLS" = "false" ]; then
+              echo "::warning::preview_urls only affects direct uploads; this deploy hook builds from the committed Wrangler config, so a Preview workers.dev URL may still exist."
             fi
           else
             echo "::error::Failed to trigger Cloudflare Deploy Hook (HTTP $HTTP_CODE)."
@@ -241,8 +255,10 @@ runs:
             IS_PROD="false"
           fi
 
+          ROUTE_ENABLED=$(route_enabled)
+
           DEPLOY_URL=""
-          if [ "$WORKERS_DEV" = "true" ] && SUBDOMAIN=$(resolve_subdomain) && [ -n "$SUBDOMAIN" ]; then
+          if [ "$ROUTE_ENABLED" = "true" ] && SUBDOMAIN=$(resolve_subdomain) && [ -n "$SUBDOMAIN" ]; then
             DEPLOY_URL="https://$(workers_host "$TARGET_WORKER" "$TARGET_CLEAN_BRANCH").${SUBDOMAIN}.workers.dev"
           elif [ "$IS_PROD" = "true" ]; then
             DEPLOY_URL=$(resolve_custom_domain "$TARGET_WORKER" || true)
@@ -579,14 +595,15 @@ runs:
             fi
           done
 
-          # Cloudflare's reported URL beats anything reconstructed from output. With
-          # workers.dev on, prefer that alias so a custom-domain Preview URL earlier in
-          # the array does not change existing links; with it off, a workers.dev URL
-          # cannot route, so accept only the custom-domain Preview URLs.
+          # Cloudflare's reported URL beats anything reconstructed from output. When
+          # this deploy's workers.dev route is on, prefer that alias so a custom-domain
+          # Preview URL earlier in the array does not change existing links; when it is
+          # off, a workers.dev URL cannot route, so accept only custom-domain URLs.
+          ROUTE_ENABLED=$(route_enabled)
           DEPLOY_URL=""
           if [ "$IS_PROD" != "true" ] && [ -s cf_preview.json ]; then
             DEPLOY_URL=$(jq -r --arg workers_re "$WORKERS_URL_RE" --arg origin_re "$HTTPS_ORIGIN_RE" \
-              --argjson prefer_workers_dev "$WORKERS_DEV" '
+              --argjson prefer_workers_dev "$ROUTE_ENABLED" '
               [(.preview.urls // [])[], (.deployment.urls // [])[]]
               | map(select(type == "string") | select(test($origin_re)))
               | if $prefer_workers_dev
@@ -598,7 +615,7 @@ runs:
 
           # Production has no JSON, so its URL still comes from the log. Preview runs
           # are JSON-only: --json suppresses the human URL lines there.
-          if [ "$IS_PROD" = "true" ] && [ "$WORKERS_DEV" = "true" ]; then
+          if [ "$IS_PROD" = "true" ] && [ "$ROUTE_ENABLED" = "true" ]; then
             URL_PREFIX="$(workers_host "$CLEAN_PROJECT" "$CLEAN_BRANCH")."
             while IFS= read -r CANDIDATE; do
               case "${CANDIDATE#https://}" in
@@ -610,7 +627,7 @@ runs:
 
           # Fallback: resolve the account's workers.dev subdomain from the API, then
           # prove the constructed URL exists before anything links to it.
-          if [ -z "$DEPLOY_URL" ] && [ "$WORKERS_DEV" = "true" ] && SUBDOMAIN=$(resolve_subdomain) && [ -n "$SUBDOMAIN" ]; then
+          if [ -z "$DEPLOY_URL" ] && [ "$ROUTE_ENABLED" = "true" ] && SUBDOMAIN=$(resolve_subdomain) && [ -n "$SUBDOMAIN" ]; then
             CANDIDATE="https://$(workers_host "$CLEAN_PROJECT" "$CLEAN_BRANCH").${SUBDOMAIN}.workers.dev"
             # Fresh Previews can take a minute to answer; 5s doubling waits 75s total.
             DELAY=5
