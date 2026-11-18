@@ -36,6 +36,7 @@ jobs:
       cloudflare_project_name: 'my-web-project'
       cloudflare_account_id: ${{ vars.CLOUDFLARE_ACCOUNT_ID }} # optional; falls back to the secret
       cloudflare_workers_dev: true # Set false to keep the Production URL off and use the Worker's custom domain
+      cloudflare_preview_urls: 'auto' # Independent Preview URL toggle; 'true' keeps previews when workers_dev is false
       enable_vercel: false # Vercel is disabled and consumes 0 runner seconds
       enable_previews: true # Set false to deploy production_branch only
 
