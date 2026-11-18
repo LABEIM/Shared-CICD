@@ -18,6 +18,10 @@ inputs:
     description: 'Unmatched-path behavior: "auto" (404-page when <dist_dir>/404.html exists, otherwise single-page-application), or an explicit "single-page-application" / "404-page". Ignored in ssr mode.'
     required: false
     default: 'auto'
+  workers_dev:
+    description: 'Expose the Worker at <worker>.<subdomain>.workers.dev and enable version preview URLs. Set false to keep the Production URL off and publish only the custom domains attached to the Worker.'
+    required: false
+    default: 'true'
   cloudflare_mode:
     description: 'Deployment shape: "auto" (SSR when <dist_dir>/server/wrangler.json exists, otherwise static assets), "static", or "ssr"'
     required: false
@@ -79,6 +83,7 @@ runs:
         PROJECT_NAME: ${{ inputs.project_name }}
         DIST_DIR: ${{ inputs.dist_dir }}
         NOT_FOUND_HANDLING: ${{ inputs.not_found_handling }}
+        WORKERS_DEV: ${{ inputs.workers_dev }}
         CLOUDFLARE_MODE: ${{ inputs.cloudflare_mode }}
         PROD_BRANCH: ${{ inputs.production_branch }}
         MAX_RETRIES: ${{ inputs.max_retries }}
@@ -109,6 +114,14 @@ runs:
           auto|single-page-application|404-page) ;;
           *)
             echo "::error::Invalid not_found_handling '$NOT_FOUND_HANDLING'. Use auto, single-page-application, or 404-page."
+            exit 1
+            ;;
+        esac
+
+        case "$WORKERS_DEV" in
+          true|false) ;;
+          *)
+            echo "::error::Invalid workers_dev '$WORKERS_DEV'. Use true or false."
             exit 1
             ;;
         esac
@@ -469,8 +482,8 @@ runs:
               esac
             done < <(jq -r '.main // empty, (.assets.directory // empty)' "$SSR_CONFIG")
             # Keep the adapter's main/assets/no_bundle/rules/bindings; override only deployment identity.
-            jq --arg name "$CLEAN_PROJECT" \
-              'del(.build.command, .build.cwd) | .name = $name | .workers_dev = true | .preview_urls = true' \
+            jq --arg name "$CLEAN_PROJECT" --argjson workers_dev "$WORKERS_DEV" \
+              'del(.build.command, .build.cwd) | .name = $name | .workers_dev = $workers_dev | .preview_urls = $workers_dev' \
               "$SSR_CONFIG" > "$DIST_DIR/server/wrangler.runtime.json"
             RUNTIME_CONFIG="$DIST_DIR/server/wrangler.runtime.json"
           else
@@ -479,8 +492,8 @@ runs:
             if [ "$RESOLVED_404" = "auto" ]; then
               if [ -f "$DIST_DIR/404.html" ]; then RESOLVED_404="404-page"; else RESOLVED_404="single-page-application"; fi
             fi
-            jq -n --arg name "$CLEAN_PROJECT" --arg dir "$DIST_DIR" --arg nf "$RESOLVED_404" \
-              '{name:$name,compatibility_date:"2026-11-01",assets:{directory:$dir,not_found_handling:$nf},workers_dev:true,preview_urls:true,previews:{}}' \
+            jq -n --arg name "$CLEAN_PROJECT" --arg dir "$DIST_DIR" --arg nf "$RESOLVED_404" --argjson workers_dev "$WORKERS_DEV" \
+              '{name:$name,compatibility_date:"2026-11-01",assets:{directory:$dir,not_found_handling:$nf},workers_dev:$workers_dev,preview_urls:$workers_dev,previews:{}}' \
               > wrangler.runtime.json
             RUNTIME_CONFIG="wrangler.runtime.json"
           fi
