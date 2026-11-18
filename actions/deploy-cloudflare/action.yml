@@ -18,6 +18,10 @@ inputs:
     description: 'Unmatched-path behavior: "auto" (404-page when <dist_dir>/404.html exists, otherwise single-page-application), or an explicit "single-page-application" / "404-page". Ignored in ssr mode.'
     required: false
     default: 'auto'
+  workers_dev:
+    description: 'For direct uploads, expose the Worker at <worker>.<subdomain>.workers.dev and enable version preview URLs. Set false to keep the Production URL off and publish only the custom domains attached to the Worker. Deploy-hook builds take their route from the committed Wrangler config.'
+    required: false
+    default: 'true'
   cloudflare_mode:
     description: 'Deployment shape: "auto" (SSR when <dist_dir>/server/wrangler.json exists, otherwise static assets), "static", or "ssr"'
     required: false
@@ -79,6 +83,7 @@ runs:
         PROJECT_NAME: ${{ inputs.project_name }}
         DIST_DIR: ${{ inputs.dist_dir }}
         NOT_FOUND_HANDLING: ${{ inputs.not_found_handling }}
+        WORKERS_DEV: ${{ inputs.workers_dev }}
         CLOUDFLARE_MODE: ${{ inputs.cloudflare_mode }}
         PROD_BRANCH: ${{ inputs.production_branch }}
         MAX_RETRIES: ${{ inputs.max_retries }}
@@ -102,13 +107,23 @@ runs:
         RESOLVED_PROJECT="${PROJECT_NAME:-${REPO_NAME#*/}}"
         CLEAN_PROJECT=$(echo "$RESOLVED_PROJECT" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g; s/^-//; s/-$//')
 
-        # The only URL shape allowed to leave this action (PR comments, summaries).
+        # The only URL shapes allowed to leave this action (PR comments, summaries):
+        # a workers.dev alias or a bare https origin (custom domain).
         WORKERS_URL_RE='^https://[a-z0-9-]+(\.[a-z0-9-]+)*\.workers\.dev$'
+        HTTPS_ORIGIN_RE='^https://[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$'
 
         case "$NOT_FOUND_HANDLING" in
           auto|single-page-application|404-page) ;;
           *)
             echo "::error::Invalid not_found_handling '$NOT_FOUND_HANDLING'. Use auto, single-page-application, or 404-page."
+            exit 1
+            ;;
+        esac
+
+        case "$WORKERS_DEV" in
+          true|false) ;;
+          *)
+            echo "::error::Invalid workers_dev '$WORKERS_DEV'. Use true or false."
             exit 1
             ;;
         esac
@@ -166,6 +181,21 @@ runs:
           if [ "$IS_PROD" = "true" ]; then printf '%s' "$1"; else printf '%s-%s' "$2" "$1"; fi
         }
 
+        # First custom domain currently routing production traffic to the Worker.
+        # Dashboard-managed domains never appear in deploy output, so ask the API.
+        resolve_custom_domain() {
+          if [ -z "$1" ] || [ -z "$CLOUDFLARE_API_TOKEN" ] || [ -z "$CLOUDFLARE_ACCOUNT_ID" ]; then
+            return 0
+          fi
+          local host
+          host=$(curl -sSf --proto '=https' --connect-timeout 10 --max-time 30 --globoff --get \
+            --data-urlencode "service=$1" \
+            -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+            "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/domains" \
+            | jq -r '[.result[]? | select(.enabled == true) | .hostname][0] // empty') || return 0
+          [ -n "$host" ] && printf 'https://%s' "$host"
+        }
+
         if [ -n "$DEPLOY_HOOK" ]; then
           echo "Triggering remote Workers Builds build via Deploy Hook..."
           HOOK_RESP=$(curl -sS -X POST --proto '=https' --connect-timeout 10 --max-time 30 \
@@ -175,6 +205,9 @@ runs:
             echo "Cloudflare Deploy Hook triggered successfully (HTTP $HTTP_CODE)."
             if [ "$RESOLVED_MODE" = "ssr" ]; then
               echo "::warning::cloudflare_mode=ssr does not change the deploy-hook shape (Workers Builds uses the committed Wrangler config), but it still requires a live URL for Lighthouse."
+            fi
+            if [ "$WORKERS_DEV" = "false" ]; then
+              echo "::warning::workers_dev only affects direct uploads; this deploy hook builds from the committed Wrangler config. deploy_url uses the custom domain or stays empty."
             fi
           else
             echo "::error::Failed to trigger Cloudflare Deploy Hook (HTTP $HTTP_CODE)."
@@ -195,9 +228,13 @@ runs:
             IS_PROD="false"
           fi
 
-          if SUBDOMAIN=$(resolve_subdomain) && [ -n "$SUBDOMAIN" ]; then
+          DEPLOY_URL=""
+          if [ "$WORKERS_DEV" = "true" ] && SUBDOMAIN=$(resolve_subdomain) && [ -n "$SUBDOMAIN" ]; then
             DEPLOY_URL="https://$(workers_host "$TARGET_WORKER" "$TARGET_CLEAN_BRANCH").${SUBDOMAIN}.workers.dev"
-          else
+          elif [ "$IS_PROD" = "true" ]; then
+            DEPLOY_URL=$(resolve_custom_domain "$TARGET_WORKER" || true)
+          fi
+          if [ -z "$DEPLOY_URL" ]; then
             echo "::warning::Cannot resolve the Workers URL for this remote build. Provide api_token and account_id, or treat deploy_url as unset."
           fi
         else
@@ -469,8 +506,8 @@ runs:
               esac
             done < <(jq -r '.main // empty, (.assets.directory // empty)' "$SSR_CONFIG")
             # Keep the adapter's main/assets/no_bundle/rules/bindings; override only deployment identity.
-            jq --arg name "$CLEAN_PROJECT" \
-              'del(.build.command, .build.cwd) | .name = $name | .workers_dev = true | .preview_urls = true' \
+            jq --arg name "$CLEAN_PROJECT" --argjson workers_dev "$WORKERS_DEV" \
+              'del(.build.command, .build.cwd) | .name = $name | .workers_dev = $workers_dev | .preview_urls = $workers_dev' \
               "$SSR_CONFIG" > "$DIST_DIR/server/wrangler.runtime.json"
             RUNTIME_CONFIG="$DIST_DIR/server/wrangler.runtime.json"
           else
@@ -479,8 +516,8 @@ runs:
             if [ "$RESOLVED_404" = "auto" ]; then
               if [ -f "$DIST_DIR/404.html" ]; then RESOLVED_404="404-page"; else RESOLVED_404="single-page-application"; fi
             fi
-            jq -n --arg name "$CLEAN_PROJECT" --arg dir "$DIST_DIR" --arg nf "$RESOLVED_404" \
-              '{name:$name,compatibility_date:"2026-11-01",assets:{directory:$dir,not_found_handling:$nf},workers_dev:true,preview_urls:true,previews:{}}' \
+            jq -n --arg name "$CLEAN_PROJECT" --arg dir "$DIST_DIR" --arg nf "$RESOLVED_404" --argjson workers_dev "$WORKERS_DEV" \
+              '{name:$name,compatibility_date:"2026-11-01",assets:{directory:$dir,not_found_handling:$nf},workers_dev:$workers_dev,preview_urls:$workers_dev,previews:{}}' \
               > wrangler.runtime.json
             RUNTIME_CONFIG="wrangler.runtime.json"
           fi
@@ -526,19 +563,26 @@ runs:
             fi
           done
 
-          # Cloudflare's reported URL beats anything reconstructed from output. Pick
-          # the first workers.dev URL, so a custom-domain Preview URL earlier in the
-          # array does not hide the workers.dev alias.
+          # Cloudflare's reported URL beats anything reconstructed from output. With
+          # workers.dev on, prefer that alias so a custom-domain Preview URL earlier in
+          # the array does not change existing links; with it off, a workers.dev URL
+          # cannot route, so accept only the custom-domain Preview URLs.
           DEPLOY_URL=""
           if [ "$IS_PROD" != "true" ] && [ -s cf_preview.json ]; then
-            DEPLOY_URL=$(jq -r --arg re "$WORKERS_URL_RE" '[(.preview.urls // [])[], (.deployment.urls // [])[]]
-              | map(select(type == "string" and test($re)))
+            DEPLOY_URL=$(jq -r --arg workers_re "$WORKERS_URL_RE" --arg origin_re "$HTTPS_ORIGIN_RE" \
+              --argjson prefer_workers_dev "$WORKERS_DEV" '
+              [(.preview.urls // [])[], (.deployment.urls // [])[]]
+              | map(select(type == "string") | select(test($origin_re)))
+              | if $prefer_workers_dev
+                then (map(select(test($workers_re))) + map(select(test($workers_re) | not)))
+                else map(select(test($workers_re) | not))
+                end
               | .[0] // empty' cf_preview.json 2>/dev/null || true)
           fi
 
           # Production has no JSON, so its URL still comes from the log. Preview runs
           # are JSON-only: --json suppresses the human URL lines there.
-          if [ "$IS_PROD" = "true" ]; then
+          if [ "$IS_PROD" = "true" ] && [ "$WORKERS_DEV" = "true" ]; then
             URL_PREFIX="$(workers_host "$CLEAN_PROJECT" "$CLEAN_BRANCH")."
             while IFS= read -r CANDIDATE; do
               case "${CANDIDATE#https://}" in
@@ -550,7 +594,7 @@ runs:
 
           # Fallback: resolve the account's workers.dev subdomain from the API, then
           # prove the constructed URL exists before anything links to it.
-          if [ -z "$DEPLOY_URL" ] && SUBDOMAIN=$(resolve_subdomain) && [ -n "$SUBDOMAIN" ]; then
+          if [ -z "$DEPLOY_URL" ] && [ "$WORKERS_DEV" = "true" ] && SUBDOMAIN=$(resolve_subdomain) && [ -n "$SUBDOMAIN" ]; then
             CANDIDATE="https://$(workers_host "$CLEAN_PROJECT" "$CLEAN_BRANCH").${SUBDOMAIN}.workers.dev"
             # Fresh Previews can take a minute to answer; 5s doubling waits 75s total.
             DELAY=5
@@ -567,13 +611,20 @@ runs:
             fi
           fi
 
+          # An attached custom domain is the last public URL when workers.dev does not
+          # resolve. Previews reuse the production domain, so never publish it for them.
+          if [ -z "$DEPLOY_URL" ] && [ "$IS_PROD" = "true" ]; then
+            DEPLOY_URL=$(resolve_custom_domain "$CLEAN_PROJECT" || true)
+          fi
+
           if [ -z "$DEPLOY_URL" ]; then
-            echo "::warning::Could not resolve a workers.dev URL; deploy_url is unset."
+            echo "::warning::Could not resolve a workers.dev or custom-domain URL; deploy_url is unset."
           fi
         fi
 
-        # Only a workers.dev URL may leave this action (PR comments, summaries).
-        if ! [[ "$DEPLOY_URL" =~ $WORKERS_URL_RE ]]; then
+        # Only a workers.dev alias or a bare https origin may leave this action.
+        if [ -n "$DEPLOY_URL" ] && ! [[ "$DEPLOY_URL" =~ $HTTPS_ORIGIN_RE ]]; then
+          echo "::warning::Discarding an unexpected deployment URL shape."
           DEPLOY_URL=""
         fi
 

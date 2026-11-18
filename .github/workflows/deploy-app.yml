@@ -79,6 +79,11 @@ on:
         required: false
         type: string
         default: 'auto'
+      cloudflare_workers_dev:
+        description: 'For direct uploads, expose the Worker at <worker>.<subdomain>.workers.dev. Set false to keep the Production URL off; deploy_url falls back to the Worker''s custom domain. Deploy-hook builds use the committed Wrangler config'
+        required: false
+        type: boolean
+        default: true
       cloudflare_account_id:
         description: 'Cloudflare Account ID (non-secret option; falls back to CLOUDFLARE_ACCOUNT_ID)'
         required: false
@@ -275,6 +280,7 @@ jobs:
           dist_dir: ${{ (inputs.build_location == 'github' || inputs.build_location == '' || inputs.build_location == 'auto') && '_dist_assets' || inputs.dist_dir }}
           production_branch: ${{ inputs.production_branch }}
           cloudflare_mode: ${{ inputs.cloudflare_mode }}
+          workers_dev: ${{ inputs.cloudflare_workers_dev }}
           enable_previews: ${{ inputs.enable_previews }}
           api_token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           account_id: ${{ inputs.cloudflare_account_id || secrets.CLOUDFLARE_ACCOUNT_ID }}

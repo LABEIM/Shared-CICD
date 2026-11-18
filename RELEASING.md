@@ -97,6 +97,11 @@ Record these in the release notes, because consumers pinned to `@v2` inherit the
 - A Cloudflare preview's `deploy_url` is now the first `*.workers.dev` URL Wrangler reports, instead of whatever the log scrape found. A preview whose only reported URL is a custom domain now falls back to a verified workers.dev alias, and a constructed alias is published only after it answers.
 - A failed preview deploy prints Wrangler's own error. Preview runs output machine JSON, so the message is flushed from the captured file rather than streamed live.
 
+### v2.5.0 behavior changes
+
+- `cloudflare_workers_dev` (action input `workers_dev`) defaults to `true`, so existing consumers keep the workers.dev route. For direct uploads, setting it to `false` leaves `workers_dev` and `preview_urls` off in the generated config instead of re-enabling the Production URL. Deploy-hook builds ignore it because Workers Builds uses the committed Wrangler config.
+- When no `*.workers.dev` URL resolves, `deploy_url` now falls back to the Worker's first enabled custom domain instead of staying empty. A preview uses Cloudflare's custom-domain Preview URL and never borrows the parent Worker's production domain. Consumers that already resolved a workers.dev URL see no change.
+
 ---
 
 ### Scenario C: Releasing a Breaking Change (`v2.0.0`)
