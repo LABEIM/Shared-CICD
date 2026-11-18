@@ -85,7 +85,7 @@ on:
         type: boolean
         default: true
       cloudflare_preview_urls:
-        description: 'Workers.dev Preview URLs for branch Previews: "auto" leaves the existing Cloudflare setting unchanged, "true" enables, "false" disables. Independent of cloudflare_workers_dev'
+        description: 'Workers.dev Preview URLs for branch Previews: "auto" leaves the field out of static configs and keeps the adapter value for SSR; "true" or "false" writes it and controls which Preview URLs this action links. Independent of cloudflare_workers_dev'
         required: false
         type: string
         default: 'auto'

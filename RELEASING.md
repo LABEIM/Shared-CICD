@@ -104,8 +104,8 @@ Record these in the release notes, because consumers pinned to `@v2` inherit the
 
 ### v2.6.0 behavior changes
 
-- New `cloudflare_preview_urls` (action input `preview_urls`) separates workers.dev Preview URLs from the production route. Default `auto` omits `preview_urls` from the generated config, so Cloudflare keeps the existing setting instead of inheriting `workers_dev` on every deploy.
-- `cloudflare_workers_dev: false` alone no longer forces Preview URLs off. Set `cloudflare_preview_urls: true` to keep them, or `false` to disable them explicitly.
+- New `cloudflare_preview_urls` (action input `preview_urls`) separates workers.dev Preview URLs from the production route. Default `auto` omits `preview_urls` from static configs and keeps the adapter's value for SSR, so a static deploy no longer overwrites Cloudflare's stored setting with `workers_dev`.
+- `cloudflare_workers_dev: false` alone no longer forces Preview URLs off. Set `cloudflare_preview_urls: 'true'` to keep them, or `'false'` to stop linking them. If v2.5.0 disabled Preview URLs for your Worker, `auto` will not re-enable them; set `'true'` (or enable Preview in the dashboard).
 
 ---
 

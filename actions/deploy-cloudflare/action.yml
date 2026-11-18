@@ -23,7 +23,7 @@ inputs:
     required: false
     default: 'true'
   preview_urls:
-    description: 'Workers.dev Preview URLs for branch Previews: "auto" leaves the existing Cloudflare setting unchanged, "true" enables, "false" disables. Independent of workers_dev, which controls the production URL.'
+    description: 'Workers.dev Preview URLs for branch Previews: "auto" leaves the field out of static configs and keeps the adapter value for SSR; "true" or "false" writes it and controls which Preview URLs this action links. Independent of workers_dev, which controls the production URL.'
     required: false
     default: 'auto'
   cloudflare_mode:
@@ -198,11 +198,11 @@ runs:
         # follows workers_dev, Previews follow preview_urls ("auto" trusts the API).
         route_enabled() {
           if [ "$IS_PROD" = "true" ]; then
-            if [ "$WORKERS_DEV" = "true" ]; then printf true; else printf false; fi
-          elif [ "$PREVIEW_URLS" != "false" ]; then
-            printf true
+            printf '%s' "$WORKERS_DEV"
+          elif [ "$PREVIEW_URLS" = "false" ]; then
+            printf '%s' false
           else
-            printf false
+            printf '%s' true
           fi
         }
 
@@ -231,11 +231,6 @@ runs:
             if [ "$RESOLVED_MODE" = "ssr" ]; then
               echo "::warning::cloudflare_mode=ssr does not change the deploy-hook shape (Workers Builds uses the committed Wrangler config), but it still requires a live URL for Lighthouse."
             fi
-            if [ "$IS_PROD" = "true" ] && [ "$WORKERS_DEV" = "false" ]; then
-              echo "::warning::workers_dev only affects direct uploads; this deploy hook builds from the committed Wrangler config. deploy_url uses the custom domain or stays empty."
-            elif [ "$IS_PROD" != "true" ] && [ "$PREVIEW_URLS" = "false" ]; then
-              echo "::warning::preview_urls only affects direct uploads; this deploy hook builds from the committed Wrangler config, so a Preview workers.dev URL may still exist."
-            fi
           else
             echo "::error::Failed to trigger Cloudflare Deploy Hook (HTTP $HTTP_CODE)."
             exit 1
@@ -253,6 +248,13 @@ runs:
             IS_PROD="true"
           else
             IS_PROD="false"
+          fi
+
+          # The hook's own branch decides whether the input could affect this build.
+          if [ "$IS_PROD" = "true" ] && [ "$WORKERS_DEV" = "false" ]; then
+            echo "::warning::workers_dev only affects direct uploads; this deploy hook builds from the committed Wrangler config. deploy_url uses the custom domain or stays empty."
+          elif [ "$IS_PROD" != "true" ] && [ "$PREVIEW_URLS" = "false" ]; then
+            echo "::warning::preview_urls only affects direct uploads; this deploy hook builds from the committed Wrangler config, so a Preview workers.dev URL may still exist."
           fi
 
           ROUTE_ENABLED=$(route_enabled)
@@ -603,10 +605,10 @@ runs:
           DEPLOY_URL=""
           if [ "$IS_PROD" != "true" ] && [ -s cf_preview.json ]; then
             DEPLOY_URL=$(jq -r --arg workers_re "$WORKERS_URL_RE" --arg origin_re "$HTTPS_ORIGIN_RE" \
-              --argjson prefer_workers_dev "$ROUTE_ENABLED" '
+              --argjson route_enabled "$ROUTE_ENABLED" '
               [(.preview.urls // [])[], (.deployment.urls // [])[]]
               | map(select(type == "string") | select(test($origin_re)))
-              | if $prefer_workers_dev
+              | if $route_enabled
                 then (map(select(test($workers_re))) + map(select(test($workers_re) | not)))
                 else map(select(test($workers_re) | not))
                 end
