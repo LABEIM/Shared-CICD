@@ -39,6 +39,7 @@ jobs:
           dist_dir: 'dist'
           not_found_handling: 'auto' # 404-page if dist/404.html exists, otherwise SPA fallback
           workers_dev: false # Direct uploads: Production URL off; deploy_url uses the custom domain (previews need preview routing on it)
+          preview_urls: true # Keep workers.dev Preview URLs while the Production URL is off
           enable_previews: true # Set false to deploy production_branch only
           api_token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           account_id: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}

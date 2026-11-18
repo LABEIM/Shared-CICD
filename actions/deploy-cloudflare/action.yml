@@ -19,9 +19,13 @@ inputs:
     required: false
     default: 'auto'
   workers_dev:
-    description: 'For direct uploads, expose the Worker at <worker>.<subdomain>.workers.dev and enable version preview URLs. Set false to keep the Production URL off and publish only the custom domains attached to the Worker. Deploy-hook builds take their route from the committed Wrangler config.'
+    description: 'For direct uploads, expose the Worker at <worker>.<subdomain>.workers.dev. Set false to keep the Production URL off and publish only the custom domains attached to the Worker. Preview URLs are controlled by preview_urls. Deploy-hook builds take their route from the committed Wrangler config.'
     required: false
     default: 'true'
+  preview_urls:
+    description: 'Workers.dev Preview URLs for branch Previews: "auto" leaves the field out of static configs and keeps the adapter value for SSR; "true" or "false" writes it and controls which Preview URLs this action links. Independent of workers_dev, which controls the production URL.'
+    required: false
+    default: 'auto'
   cloudflare_mode:
     description: 'Deployment shape: "auto" (SSR when <dist_dir>/server/wrangler.json exists, otherwise static assets), "static", or "ssr"'
     required: false
@@ -84,6 +88,7 @@ runs:
         DIST_DIR: ${{ inputs.dist_dir }}
         NOT_FOUND_HANDLING: ${{ inputs.not_found_handling }}
         WORKERS_DEV: ${{ inputs.workers_dev }}
+        PREVIEW_URLS: ${{ inputs.preview_urls }}
         CLOUDFLARE_MODE: ${{ inputs.cloudflare_mode }}
         PROD_BRANCH: ${{ inputs.production_branch }}
         MAX_RETRIES: ${{ inputs.max_retries }}
@@ -124,6 +129,14 @@ runs:
           true|false) ;;
           *)
             echo "::error::Invalid workers_dev '$WORKERS_DEV'. Use true or false."
+            exit 1
+            ;;
+        esac
+
+        case "$PREVIEW_URLS" in
+          auto|true|false) ;;
+          *)
+            echo "::error::Invalid preview_urls '$PREVIEW_URLS'. Use auto, true, or false."
             exit 1
             ;;
         esac
@@ -181,6 +194,18 @@ runs:
           if [ "$IS_PROD" = "true" ]; then printf '%s' "$1"; else printf '%s-%s' "$2" "$1"; fi
         }
 
+        # Whether this deploy's workers.dev route is expected to exist: production
+        # follows workers_dev, Previews follow preview_urls ("auto" trusts the API).
+        route_enabled() {
+          if [ "$IS_PROD" = "true" ]; then
+            printf '%s' "$WORKERS_DEV"
+          elif [ "$PREVIEW_URLS" = "false" ]; then
+            printf '%s' false
+          else
+            printf '%s' true
+          fi
+        }
+
         # First custom domain currently routing production traffic to the Worker.
         # Dashboard-managed domains never appear in deploy output, so ask the API.
         resolve_custom_domain() {
@@ -206,9 +231,6 @@ runs:
             if [ "$RESOLVED_MODE" = "ssr" ]; then
               echo "::warning::cloudflare_mode=ssr does not change the deploy-hook shape (Workers Builds uses the committed Wrangler config), but it still requires a live URL for Lighthouse."
             fi
-            if [ "$WORKERS_DEV" = "false" ]; then
-              echo "::warning::workers_dev only affects direct uploads; this deploy hook builds from the committed Wrangler config. deploy_url uses the custom domain or stays empty."
-            fi
           else
             echo "::error::Failed to trigger Cloudflare Deploy Hook (HTTP $HTTP_CODE)."
             exit 1
@@ -228,8 +250,17 @@ runs:
             IS_PROD="false"
           fi
 
+          # The hook's own branch decides whether the input could affect this build.
+          if [ "$IS_PROD" = "true" ] && [ "$WORKERS_DEV" = "false" ]; then
+            echo "::warning::workers_dev only affects direct uploads; this deploy hook builds from the committed Wrangler config. deploy_url uses the custom domain or stays empty."
+          elif [ "$IS_PROD" != "true" ] && [ "$PREVIEW_URLS" = "false" ]; then
+            echo "::warning::preview_urls only affects direct uploads; this deploy hook builds from the committed Wrangler config, so a Preview workers.dev URL may still exist."
+          fi
+
+          ROUTE_ENABLED=$(route_enabled)
+
           DEPLOY_URL=""
-          if [ "$WORKERS_DEV" = "true" ] && SUBDOMAIN=$(resolve_subdomain) && [ -n "$SUBDOMAIN" ]; then
+          if [ "$ROUTE_ENABLED" = "true" ] && SUBDOMAIN=$(resolve_subdomain) && [ -n "$SUBDOMAIN" ]; then
             DEPLOY_URL="https://$(workers_host "$TARGET_WORKER" "$TARGET_CLEAN_BRANCH").${SUBDOMAIN}.workers.dev"
           elif [ "$IS_PROD" = "true" ]; then
             DEPLOY_URL=$(resolve_custom_domain "$TARGET_WORKER" || true)
@@ -506,8 +537,9 @@ runs:
               esac
             done < <(jq -r '.main // empty, (.assets.directory // empty)' "$SSR_CONFIG")
             # Keep the adapter's main/assets/no_bundle/rules/bindings; override only deployment identity.
-            jq --arg name "$CLEAN_PROJECT" --argjson workers_dev "$WORKERS_DEV" \
-              'del(.build.command, .build.cwd) | .name = $name | .workers_dev = $workers_dev | .preview_urls = $workers_dev' \
+            jq --arg name "$CLEAN_PROJECT" --argjson workers_dev "$WORKERS_DEV" --arg preview_urls "$PREVIEW_URLS" \
+              'del(.build.command, .build.cwd) | .name = $name | .workers_dev = $workers_dev
+               | if $preview_urls == "auto" then . else .preview_urls = ($preview_urls == "true") end' \
               "$SSR_CONFIG" > "$DIST_DIR/server/wrangler.runtime.json"
             RUNTIME_CONFIG="$DIST_DIR/server/wrangler.runtime.json"
           else
@@ -516,8 +548,10 @@ runs:
             if [ "$RESOLVED_404" = "auto" ]; then
               if [ -f "$DIST_DIR/404.html" ]; then RESOLVED_404="404-page"; else RESOLVED_404="single-page-application"; fi
             fi
-            jq -n --arg name "$CLEAN_PROJECT" --arg dir "$DIST_DIR" --arg nf "$RESOLVED_404" --argjson workers_dev "$WORKERS_DEV" \
-              '{name:$name,compatibility_date:"2026-11-01",assets:{directory:$dir,not_found_handling:$nf},workers_dev:$workers_dev,preview_urls:$workers_dev,previews:{}}' \
+            jq -n --arg name "$CLEAN_PROJECT" --arg dir "$DIST_DIR" --arg nf "$RESOLVED_404" \
+              --argjson workers_dev "$WORKERS_DEV" --arg preview_urls "$PREVIEW_URLS" \
+              '{name:$name,compatibility_date:"2026-11-01",assets:{directory:$dir,not_found_handling:$nf},workers_dev:$workers_dev,previews:{}}
+               + (if $preview_urls == "auto" then {} else {preview_urls: ($preview_urls == "true")} end)' \
               > wrangler.runtime.json
             RUNTIME_CONFIG="wrangler.runtime.json"
           fi
@@ -563,17 +597,18 @@ runs:
             fi
           done
 
-          # Cloudflare's reported URL beats anything reconstructed from output. With
-          # workers.dev on, prefer that alias so a custom-domain Preview URL earlier in
-          # the array does not change existing links; with it off, a workers.dev URL
-          # cannot route, so accept only the custom-domain Preview URLs.
+          # Cloudflare's reported URL beats anything reconstructed from output. When
+          # this deploy's workers.dev route is on, prefer that alias so a custom-domain
+          # Preview URL earlier in the array does not change existing links; when it is
+          # off, a workers.dev URL cannot route, so accept only custom-domain URLs.
+          ROUTE_ENABLED=$(route_enabled)
           DEPLOY_URL=""
           if [ "$IS_PROD" != "true" ] && [ -s cf_preview.json ]; then
             DEPLOY_URL=$(jq -r --arg workers_re "$WORKERS_URL_RE" --arg origin_re "$HTTPS_ORIGIN_RE" \
-              --argjson prefer_workers_dev "$WORKERS_DEV" '
+              --argjson route_enabled "$ROUTE_ENABLED" '
               [(.preview.urls // [])[], (.deployment.urls // [])[]]
               | map(select(type == "string") | select(test($origin_re)))
-              | if $prefer_workers_dev
+              | if $route_enabled
                 then (map(select(test($workers_re))) + map(select(test($workers_re) | not)))
                 else map(select(test($workers_re) | not))
                 end
@@ -582,7 +617,7 @@ runs:
 
           # Production has no JSON, so its URL still comes from the log. Preview runs
           # are JSON-only: --json suppresses the human URL lines there.
-          if [ "$IS_PROD" = "true" ] && [ "$WORKERS_DEV" = "true" ]; then
+          if [ "$IS_PROD" = "true" ] && [ "$ROUTE_ENABLED" = "true" ]; then
             URL_PREFIX="$(workers_host "$CLEAN_PROJECT" "$CLEAN_BRANCH")."
             while IFS= read -r CANDIDATE; do
               case "${CANDIDATE#https://}" in
@@ -594,7 +629,7 @@ runs:
 
           # Fallback: resolve the account's workers.dev subdomain from the API, then
           # prove the constructed URL exists before anything links to it.
-          if [ -z "$DEPLOY_URL" ] && [ "$WORKERS_DEV" = "true" ] && SUBDOMAIN=$(resolve_subdomain) && [ -n "$SUBDOMAIN" ]; then
+          if [ -z "$DEPLOY_URL" ] && [ "$ROUTE_ENABLED" = "true" ] && SUBDOMAIN=$(resolve_subdomain) && [ -n "$SUBDOMAIN" ]; then
             CANDIDATE="https://$(workers_host "$CLEAN_PROJECT" "$CLEAN_BRANCH").${SUBDOMAIN}.workers.dev"
             # Fresh Previews can take a minute to answer; 5s doubling waits 75s total.
             DELAY=5
