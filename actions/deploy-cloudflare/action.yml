@@ -107,8 +107,10 @@ runs:
         RESOLVED_PROJECT="${PROJECT_NAME:-${REPO_NAME#*/}}"
         CLEAN_PROJECT=$(echo "$RESOLVED_PROJECT" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g; s/^-//; s/-$//')
 
-        # The only URL shape allowed to leave this action (PR comments, summaries).
+        # The only URL shapes allowed to leave this action (PR comments, summaries):
+        # a workers.dev alias or a bare https origin (custom domain).
         WORKERS_URL_RE='^https://[a-z0-9-]+(\.[a-z0-9-]+)*\.workers\.dev$'
+        HTTPS_ORIGIN_RE='^https://[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$'
 
         case "$NOT_FOUND_HANDLING" in
           auto|single-page-application|404-page) ;;
@@ -179,6 +181,19 @@ runs:
           if [ "$IS_PROD" = "true" ]; then printf '%s' "$1"; else printf '%s-%s' "$2" "$1"; fi
         }
 
+        # First custom domain currently routing production traffic to the Worker.
+        # Dashboard-managed domains never appear in deploy output, so ask the API.
+        resolve_custom_domain() {
+          if [ -z "$1" ] || [ -z "$CLOUDFLARE_API_TOKEN" ] || [ -z "$CLOUDFLARE_ACCOUNT_ID" ]; then
+            return 0
+          fi
+          local host
+          host=$(curl -sSf -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+            "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/domains?service=$1" \
+            | jq -r '[.result[]? | select(.enabled == true) | .hostname][0] // empty') || return 0
+          [ -n "$host" ] && printf 'https://%s' "$host"
+        }
+
         if [ -n "$DEPLOY_HOOK" ]; then
           echo "Triggering remote Workers Builds build via Deploy Hook..."
           HOOK_RESP=$(curl -sS -X POST --proto '=https' --connect-timeout 10 --max-time 30 \
@@ -208,9 +223,13 @@ runs:
             IS_PROD="false"
           fi
 
-          if SUBDOMAIN=$(resolve_subdomain) && [ -n "$SUBDOMAIN" ]; then
+          DEPLOY_URL=""
+          if [ "$WORKERS_DEV" = "true" ] && SUBDOMAIN=$(resolve_subdomain) && [ -n "$SUBDOMAIN" ]; then
             DEPLOY_URL="https://$(workers_host "$TARGET_WORKER" "$TARGET_CLEAN_BRANCH").${SUBDOMAIN}.workers.dev"
-          else
+          elif [ "$IS_PROD" = "true" ]; then
+            DEPLOY_URL=$(resolve_custom_domain "$TARGET_WORKER" || true)
+          fi
+          if [ -z "$DEPLOY_URL" ]; then
             echo "::warning::Cannot resolve the Workers URL for this remote build. Provide api_token and account_id, or treat deploy_url as unset."
           fi
         else
@@ -539,19 +558,26 @@ runs:
             fi
           done
 
-          # Cloudflare's reported URL beats anything reconstructed from output. Pick
-          # the first workers.dev URL, so a custom-domain Preview URL earlier in the
-          # array does not hide the workers.dev alias.
+          # Cloudflare's reported URL beats anything reconstructed from output. With
+          # workers.dev on, prefer that alias so a custom-domain Preview URL earlier in
+          # the array does not change existing links; with it off, a workers.dev URL
+          # cannot route, so accept only the custom-domain Preview URLs.
           DEPLOY_URL=""
           if [ "$IS_PROD" != "true" ] && [ -s cf_preview.json ]; then
-            DEPLOY_URL=$(jq -r --arg re "$WORKERS_URL_RE" '[(.preview.urls // [])[], (.deployment.urls // [])[]]
-              | map(select(type == "string" and test($re)))
+            DEPLOY_URL=$(jq -r --arg workers_re "$WORKERS_URL_RE" --arg origin_re "$HTTPS_ORIGIN_RE" \
+              --argjson prefer_workers_dev "$WORKERS_DEV" '
+              [(.preview.urls // [])[], (.deployment.urls // [])[]]
+              | map(select(type == "string") | select(test($origin_re)))
+              | if $prefer_workers_dev
+                then (map(select(test($workers_re))) + map(select(test($workers_re) | not)))
+                else map(select(test($workers_re) | not))
+                end
               | .[0] // empty' cf_preview.json 2>/dev/null || true)
           fi
 
           # Production has no JSON, so its URL still comes from the log. Preview runs
           # are JSON-only: --json suppresses the human URL lines there.
-          if [ "$IS_PROD" = "true" ]; then
+          if [ "$IS_PROD" = "true" ] && [ "$WORKERS_DEV" = "true" ]; then
             URL_PREFIX="$(workers_host "$CLEAN_PROJECT" "$CLEAN_BRANCH")."
             while IFS= read -r CANDIDATE; do
               case "${CANDIDATE#https://}" in
@@ -563,7 +589,7 @@ runs:
 
           # Fallback: resolve the account's workers.dev subdomain from the API, then
           # prove the constructed URL exists before anything links to it.
-          if [ -z "$DEPLOY_URL" ] && SUBDOMAIN=$(resolve_subdomain) && [ -n "$SUBDOMAIN" ]; then
+          if [ -z "$DEPLOY_URL" ] && [ "$WORKERS_DEV" = "true" ] && SUBDOMAIN=$(resolve_subdomain) && [ -n "$SUBDOMAIN" ]; then
             CANDIDATE="https://$(workers_host "$CLEAN_PROJECT" "$CLEAN_BRANCH").${SUBDOMAIN}.workers.dev"
             # Fresh Previews can take a minute to answer; 5s doubling waits 75s total.
             DELAY=5
@@ -580,13 +606,20 @@ runs:
             fi
           fi
 
+          # With workers.dev off, an attached custom domain is the only public URL.
+          # Previews reuse the production domain, so never publish it for them.
+          if [ -z "$DEPLOY_URL" ] && [ "$IS_PROD" = "true" ]; then
+            DEPLOY_URL=$(resolve_custom_domain "$CLEAN_PROJECT" || true)
+          fi
+
           if [ -z "$DEPLOY_URL" ]; then
-            echo "::warning::Could not resolve a workers.dev URL; deploy_url is unset."
+            echo "::warning::Could not resolve a workers.dev or custom-domain URL; deploy_url is unset."
           fi
         fi
 
-        # Only a workers.dev URL may leave this action (PR comments, summaries).
-        if ! [[ "$DEPLOY_URL" =~ $WORKERS_URL_RE ]]; then
+        # Only a workers.dev alias or a bare https origin may leave this action.
+        if [ -n "$DEPLOY_URL" ] && ! [[ "$DEPLOY_URL" =~ $HTTPS_ORIGIN_RE ]]; then
+          echo "::warning::Discarding an unexpected deployment URL shape."
           DEPLOY_URL=""
         fi
 
