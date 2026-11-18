@@ -21,6 +21,7 @@ This repository provides shared CI/CD building blocks consumed by LABEIM project
 - **Ready-to-copy examples** under `examples/` covering zero-dependency static sites, framework applications, monorepos, multi-cloud deployments, and remote platform builds.
 - **Build-time configuration** — inherited secrets or repository/organization variables named `PUBLIC_*` are exported into the build environment (variables win over same-named secrets), so consumer config reaches the static build without `with:` inputs.
 - **Production-only option** — set `enable_previews: false` to deploy only `production_branch` and skip this pipeline's preview deployments and their public URLs.
+- **workers.dev opt-out** — set `cloudflare_workers_dev: false` to keep the Production URL disabled and report the Worker's custom domain instead.
 - **Keystatic CMS on Workers** — an Astro 7 site can deploy its Keystatic Cloud admin at `/keystatic` as a Worker with static assets (`cloudflare_mode: 'ssr'`).
 - **Status:** Active
 - **Maintained by:** Enterprise Infrastructure Management (EIM) Research Laboratory, Telkom University
